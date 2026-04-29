@@ -36,15 +36,14 @@ echo "Releasing $VERSION ($TODAY)..."
 sd 'VERSION="[0-9]+\.[0-9]+\.[0-9]+"' "VERSION=\"$BARE\"" "$REPO_ROOT/wrk"
 
 # 2. Promote [Unreleased] → [VERSION] in CHANGELOG
-# 3. Promote [Unreleased] → [VERSION] in CHANGELOG
-sd '## \[Unreleased\]\n' "## [Unreleased]\n\n## [$BARE] - $TODAY\n" "$CHANGELOG"
+sd '## \[Unreleased\]' "## [Unreleased]\n\n## [$BARE] - $TODAY" "$CHANGELOG"
 
-# Update comparison links
+# Update comparison links (insert new version link directly after [Unreleased] link)
 PREV_TAG=$(git tag --sort=-version:refname | grep '^v' | head -1)
-sd "\[Unreleased\]: (https://github\.com/danhorst/wrk/compare/).*\.\.\.HEAD" \
-   "[Unreleased]: \${1}${VERSION}...HEAD" "$CHANGELOG"
-printf '[%s]: https://github.com/danhorst/wrk/compare/%s...%s\n' \
-  "$BARE" "$PREV_TAG" "$VERSION" >> "$CHANGELOG"
+PREV_BARE="${PREV_TAG#v}"
+sd "\[Unreleased\]: https://github\.com/danhorst/wrk/compare/.*\.\.\.HEAD" \
+   "[Unreleased]: https://github.com/danhorst/wrk/compare/${VERSION}...HEAD\n[$BARE]: https://github.com/danhorst/wrk/compare/${PREV_BARE}...${BARE}" \
+   "$CHANGELOG"
 
 # 4. Commit and tag
 git add wrk CHANGELOG.md
