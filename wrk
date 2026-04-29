@@ -20,7 +20,7 @@ PROJECT_PATH=$(printf '%s\n' "${PROJECTS[@]}" \
 PROJECT_PATH="$PROJECT_ROOT/$PROJECT_PATH"
 
 # tmux-safe base name
-BASE="proj-$(basename "$PROJECT_PATH" | tr -c 'a-zA-Z0-9' '_')"
+BASE="wrk-$(basename "$PROJECT_PATH" | tr -c 'a-zA-Z0-9' '_')"
 
 # Determine session name
 if [ -n "${2:-}" ]; then
