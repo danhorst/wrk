@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+VERSION="1.2.0"
+
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
 WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
 
@@ -13,6 +15,7 @@ Usage:
   wrk <project> <label>  Open or create a labeled sub-project session
   wrk --list             List all worktrees and their status
   wrk --clean            Review and remove worktrees for merged branches
+  wrk --version          Show version
   wrk --help             Show this help
 
 Labeled sessions are backed by a git worktree in WRK_WORKTREE_ROOT.
@@ -199,9 +202,10 @@ cmd_clean() {
 
 # Handle subcommands before project discovery
 case "${1:-}" in
-  --help)  show_help; exit 0 ;;
-  --list)  cmd_list;  exit 0 ;;
-  --clean) cmd_clean; exit 0 ;;
+  --help)    show_help; exit 0 ;;
+  --version) echo "wrk $VERSION"; exit 0 ;;
+  --list)    cmd_list;  exit 0 ;;
+  --clean)   cmd_clean; exit 0 ;;
 esac
 
 # --- Project discovery ---

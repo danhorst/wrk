@@ -19,7 +19,7 @@ VERSION="$1"
 cd "$REPO_ROOT"
 
 # Ensure working tree is clean (CHANGELOG aside)
-DIRTY=$(git status --porcelain | grep -v '^.. CHANGELOG' || true)
+DIRTY=$(git status --porcelain | grep -vE '^.. (CHANGELOG|wrk)' || true)
 [ -n "$DIRTY" ] && { echo "Error: uncommitted changes present"; git status --short; exit 1; }
 
 # Ensure [Unreleased] has content to promote
@@ -32,7 +32,11 @@ BARE="${VERSION#v}"
 
 echo "Releasing $VERSION ($TODAY)..."
 
-# 1. Promote [Unreleased] → [VERSION] in CHANGELOG
+# 1. Bump version in wrk script
+sd 'VERSION="[0-9]+\.[0-9]+\.[0-9]+"' "VERSION=\"$BARE\"" "$REPO_ROOT/wrk"
+
+# 2. Promote [Unreleased] → [VERSION] in CHANGELOG
+# 3. Promote [Unreleased] → [VERSION] in CHANGELOG
 sd '## \[Unreleased\]\n' "## [Unreleased]\n\n## [$BARE] - $TODAY\n" "$CHANGELOG"
 
 # Update comparison links
@@ -42,16 +46,16 @@ sd "\[Unreleased\]: (https://github\.com/danhorst/wrk/compare/).*\.\.\.HEAD" \
 printf '[%s]: https://github.com/danhorst/wrk/compare/%s...%s\n' \
   "$BARE" "$PREV_TAG" "$VERSION" >> "$CHANGELOG"
 
-# 2. Commit and tag
-git add CHANGELOG.md
+# 4. Commit and tag
+git add wrk CHANGELOG.md
 git commit -m "Release $VERSION"
 git tag -a "$VERSION" -m "$VERSION"
 
-# 3. Push
+# 5. Push
 git push origin main
 git push origin "$VERSION"
 
-# 4. Fetch SHA256 (retry a few times — GitHub needs a moment to publish the tarball)
+# 6. Fetch SHA256 (retry a few times — GitHub needs a moment to publish the tarball)
 TARBALL_URL="https://github.com/danhorst/wrk/archive/refs/tags/${VERSION}.tar.gz"
 echo "Fetching SHA256 for tarball..."
 SHA256=""
@@ -64,12 +68,12 @@ done
 [ -z "$SHA256" ] && { echo "Error: could not fetch tarball SHA256"; exit 1; }
 echo "SHA256: $SHA256"
 
-# 5. Update formula
+# 7. Update formula
 sd 'url "https://github\.com/danhorst/wrk/archive/refs/tags/v[0-9.]+\.tar\.gz"' \
    "url \"https://github.com/danhorst/wrk/archive/refs/tags/${VERSION}.tar.gz\"" "$FORMULA"
 sd 'sha256 "[a-f0-9]+"' "sha256 \"$SHA256\"" "$FORMULA"
 
-# 6. Commit and push formula
+# 8. Commit and push formula
 cd "$TAP_ROOT"
 git add Formula/wrk.rb
 git commit -m "Update wrk to $VERSION"
