@@ -19,12 +19,55 @@ PROJECT_PATH=$(printf '%s\n' "${PROJECTS[@]}" \
 
 PROJECT_PATH="$PROJECT_ROOT/$PROJECT_PATH"
 
-# tmux-safe session name
-SESSION="proj-$(basename "$PROJECT_PATH" | tr -c 'a-zA-Z0-9' '_')"
+# tmux-safe base name
+BASE="proj-$(basename "$PROJECT_PATH" | tr -c 'a-zA-Z0-9' '_')"
 
-# Attach or create session
-if tmux has-session -t "$SESSION" 2>/dev/null; then
-  tmux attach -d -t "$SESSION"
+# Determine session name
+if [ -n "${2:-}" ]; then
+  # Explicit session label given as second argument
+  LABEL="$(printf '%s' "$2" | tr -c 'a-zA-Z0-9' '_')"
+  SESSION="${BASE}__${LABEL}"
 else
-  tmux new-session -s "$SESSION" -c "$PROJECT_PATH"
+  # Find all existing sessions for this project (default + labeled)
+  SESSIONS=()
+  while IFS= read -r s; do
+    SESSIONS+=("$s")
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null \
+    | grep -E "^${BASE}(__.*)?$" || true)
+
+  if [ "${#SESSIONS[@]}" -ge 2 ]; then
+    # Let the user pick (or create new)
+    SESSION=$(printf '%s\n' "${SESSIONS[@]}" '[new]' \
+      | fzf --prompt="Session? ")
+    [ -z "$SESSION" ] && exit 0
+    if [ "$SESSION" = '[new]' ]; then
+      printf 'Session name: '
+      read -r label
+      [ -z "$label" ] && exit 0
+      LABEL="$(printf '%s' "$label" | tr -c 'a-zA-Z0-9' '_')"
+      SESSION="${BASE}__${LABEL}"
+    fi
+  else
+    SESSION="$BASE"
+  fi
+fi
+
+# Attach or create — use switch-client when already inside tmux
+tmux_attach() {
+  if [ -n "${TMUX:-}" ]; then
+    tmux switch-client -t "$1"
+  else
+    tmux attach -d -t "$1"
+  fi
+}
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  tmux_attach "$SESSION"
+else
+  if [ -n "${TMUX:-}" ]; then
+    tmux new-session -ds "$SESSION" -c "$PROJECT_PATH"
+    tmux switch-client -t "$SESSION"
+  else
+    tmux new-session -s "$SESSION" -c "$PROJECT_PATH"
+  fi
 fi
