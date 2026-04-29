@@ -1,7 +1,210 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
+WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
+
+show_help() {
+  cat <<'EOF'
+wrk — tmux session manager for git projects
+
+Usage:
+  wrk [query]            Fuzzy-select a project (query pre-fills the search)
+  wrk <project> <label>  Open or create a labeled sub-project session
+  wrk --list             List all worktrees and their status
+  wrk --clean            Review and remove worktrees for merged branches
+  wrk --help             Show this help
+
+Labeled sessions are backed by a git worktree in WRK_WORKTREE_ROOT.
+If a branch matching <label> exists locally or on origin, it is checked
+out into the worktree. Otherwise a new branch is created from HEAD.
+
+Environment:
+  WRK_PROJECT_ROOT   Root directory to scan for git repos (default: ~/git)
+  WRK_WORKTREE_ROOT  Root directory for worktrees (default: ~/.wrk/worktrees)
+EOF
+}
+
+# Sanitize a user-supplied label into a git-safe branch name (hyphens preserved).
+branch_name() { printf '%s' "$1" | tr -c 'a-zA-Z0-9._-' '-'; }
+
+# Sanitize a branch name into a tmux-safe session suffix (hyphens become underscores).
+session_label() { printf '%s' "$1" | tr -c 'a-zA-Z0-9' '_'; }
+
+setup_worktree_env() {
+  local project_path="$1" worktree_path="$2"
+
+  # Copy .env from parent, stripping any existing WRK_PORT so we always assign a fresh one
+  if [ ! -f "$worktree_path/.env" ] && [ -f "$project_path/.env" ]; then
+    grep -v '^WRK_PORT=' "$project_path/.env" > "$worktree_path/.env"
+  fi
+
+  # Assign a unique WRK_PORT (skip if already set)
+  if ! grep -q '^WRK_PORT=' "$worktree_path/.env" 2>/dev/null; then
+    local used_ports=()
+    while IFS= read -r p; do
+      used_ports+=("$p")
+    done < <(grep -h '^WRK_PORT=' "$WORKTREE_ROOT"/*/*/*/.env 2>/dev/null \
+      | cut -d= -f2 || true)
+
+    local port
+    while true; do
+      port=$(( RANDOM % 6001 + 3000 ))
+      local taken=false
+      for p in "${used_ports[@]+"${used_ports[@]}"}"; do
+        [ "$p" = "$port" ] && taken=true && break
+      done
+      $taken && continue
+      lsof -iTCP:"$port" -sTCP:LISTEN -t &>/dev/null && continue
+      break
+    done
+
+    printf 'WRK_PORT=%s\n' "$port" >> "$worktree_path/.env"
+  fi
+
+  if command -v mise &>/dev/null; then
+    mise trust "$worktree_path" &>/dev/null
+  else
+    echo "wrk: mise not found — WRK_PORT set in .env but won't auto-load" >&2
+  fi
+}
+
+resolve_worktree() {
+  local project_path="$1" project_rel="$2" branch="$3"
+  local wt="$WORKTREE_ROOT/$project_rel/$branch"
+  mkdir -p "$(dirname "$wt")"
+
+  if [ ! -d "$wt" ]; then
+    if git -C "$project_path" show-ref --verify --quiet "refs/heads/$branch"; then
+      git -C "$project_path" worktree add "$wt" "$branch"
+    else
+      git -C "$project_path" fetch --quiet origin 2>/dev/null || true
+      if git -C "$project_path" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+        git -C "$project_path" worktree add --track -b "$branch" "$wt" "origin/$branch"
+      else
+        git -C "$project_path" worktree add -b "$branch" "$wt"
+      fi
+    fi
+  fi
+
+  setup_worktree_env "$project_path" "$wt"
+  printf '%s' "$wt"
+}
+
+cmd_list() {
+  local found=false
+  printf '%-42s %-30s %-8s %s\n' 'WORKTREE' 'BRANCH' 'PORT' 'STATUS'
+  for wt in "$WORKTREE_ROOT"/*/*/*; do
+    [ -e "$wt/.git" ] || continue
+    found=true
+    local rel="${wt#"$WORKTREE_ROOT"/}"
+    local org_project="${rel%/*}"
+    local label="${rel##*/}"
+    local branch
+    branch=$(git -C "$wt" branch --show-current 2>/dev/null) || branch='(detached)'
+    local port
+    port=$(grep '^WRK_PORT=' "$wt/.env" 2>/dev/null | cut -d= -f2 || echo '—')
+    local sname="wrk-$(session_label "$(basename "$org_project")")__$(session_label "$label")"
+    local status
+    tmux has-session -t "$sname" 2>/dev/null && status='active' || status='—'
+    printf '%-42s %-30s %-8s %s\n' "$rel" "$branch" "$port" "$status"
+  done
+  $found || echo 'No worktrees found.'
+}
+
+cmd_clean() {
+  # Prune stale worktree metadata from all source repos that have a worktrees dir
+  for wt_dir in "$WORKTREE_ROOT"/*/*; do
+    [ -d "$wt_dir" ] || continue
+    local rel="${wt_dir#"$WORKTREE_ROOT"/}"
+    local source="$PROJECT_ROOT/$rel"
+    [ -d "$source/.git" ] && git -C "$source" worktree prune 2>/dev/null || true
+  done
+
+  local merged=() unmerged=()
+
+  for wt in "$WORKTREE_ROOT"/*/*/*; do
+    [ -e "$wt/.git" ] || continue
+    local branch
+    branch=$(git -C "$wt" branch --show-current 2>/dev/null) || continue
+    [ -z "$branch" ] && continue
+
+    local rel="${wt#"$WORKTREE_ROOT"/}"
+    local org_project="${rel%/*}"
+    local source="$PROJECT_ROOT/$org_project"
+    [ -d "$source/.git" ] || continue
+
+    local base
+    base=$(git -C "$source" symbolic-ref --short HEAD 2>/dev/null) || base='main'
+
+    if git -C "$source" branch --merged "origin/$base" 2>/dev/null \
+        | grep -qE "^[[:space:]]*${branch}$"; then
+      merged+=("$rel")
+    else
+      unmerged+=("$rel")
+    fi
+  done
+
+  if [ "${#merged[@]}" -eq 0 ] && [ "${#unmerged[@]}" -eq 0 ]; then
+    echo 'No worktrees found.'
+    return
+  fi
+
+  local to_remove=()
+
+  if [ "${#merged[@]}" -gt 0 ]; then
+    local selected
+    selected=$(printf '%s\n' "${merged[@]}" \
+      | fzf --multi --bind 'load:select-all' \
+            --prompt='Remove merged worktrees? ' \
+            --header='TAB to deselect, ENTER to confirm' || true)
+    while IFS= read -r line; do
+      [ -n "$line" ] && to_remove+=("$line")
+    done <<< "$selected"
+  fi
+
+  if [ "${#unmerged[@]}" -gt 0 ]; then
+    local extra
+    extra=$(printf '%s\n' "${unmerged[@]}" \
+      | fzf --multi \
+            --prompt='Also remove unmerged worktrees? ' \
+            --header='TAB to select, ENTER to skip' || true)
+    while IFS= read -r line; do
+      [ -n "$line" ] && to_remove+=("$line")
+    done <<< "$extra"
+  fi
+
+  for rel in "${to_remove[@]+"${to_remove[@]}"}"; do
+    local wt="$WORKTREE_ROOT/$rel"
+    local org_project="${rel%/*}"
+    local label="${rel##*/}"
+    local source="$PROJECT_ROOT/$org_project"
+    local branch
+    branch=$(git -C "$wt" branch --show-current 2>/dev/null) || branch=''
+
+    git -C "$source" worktree remove "$wt" 2>/dev/null \
+      || git -C "$source" worktree remove --force "$wt"
+
+    if [ -n "$branch" ]; then
+      git -C "$source" branch -d "$branch" 2>/dev/null \
+        || echo "Note: branch '$branch' not deleted (may have unmerged commits)"
+    fi
+
+    local sname="wrk-$(session_label "$(basename "$org_project")")__$(session_label "$label")"
+    tmux kill-session -t "$sname" 2>/dev/null || true
+
+    echo "Removed: $rel"
+  done
+}
+
+# Handle subcommands before project discovery
+case "${1:-}" in
+  --help)  show_help; exit 0 ;;
+  --list)  cmd_list;  exit 0 ;;
+  --clean) cmd_clean; exit 0 ;;
+esac
+
+# --- Project discovery ---
 
 PROJECTS=()
 for gitdir in "$PROJECT_ROOT"/*/*/.git; do
@@ -13,20 +216,23 @@ done
 
 PROJECT_PATH=$(printf '%s\n' "${PROJECTS[@]}" \
   | sed "s|^$PROJECT_ROOT/||" \
-  | fzf --prompt="What do you want to work on? " --query "${1:-}")
+  | fzf --prompt='What do you want to work on? ' --query "${1:-}")
 
 [ -z "$PROJECT_PATH" ] && exit 0
 
+PROJECT_REL="$PROJECT_PATH"
 PROJECT_PATH="$PROJECT_ROOT/$PROJECT_PATH"
 
 # tmux-safe base name
-BASE="wrk-$(basename "$PROJECT_PATH" | tr -c 'a-zA-Z0-9' '_')"
+BASE="wrk-$(session_label "$(basename "$PROJECT_PATH")")"
 
-# Determine session name
+# Determine session name and working directory
+SESSION_DIR="$PROJECT_PATH"
+
 if [ -n "${2:-}" ]; then
-  # Explicit session label given as second argument
-  LABEL="$(printf '%s' "$2" | tr -c 'a-zA-Z0-9' '_')"
-  SESSION="${BASE}__${LABEL}"
+  BRANCH="$(branch_name "$2")"
+  SESSION="${BASE}__$(session_label "$BRANCH")"
+  SESSION_DIR="$(resolve_worktree "$PROJECT_PATH" "$PROJECT_REL" "$BRANCH")"
 else
   # Find all existing sessions for this project (default + labeled)
   SESSIONS=()
@@ -36,16 +242,16 @@ else
     | grep -E "^${BASE}(__.*)?$" || true)
 
   if [ "${#SESSIONS[@]}" -ge 2 ]; then
-    # Let the user pick (or create new)
     SESSION=$(printf '%s\n' "${SESSIONS[@]}" '[new]' \
-      | fzf --prompt="Session? ")
+      | fzf --prompt='Session? ')
     [ -z "$SESSION" ] && exit 0
     if [ "$SESSION" = '[new]' ]; then
       printf 'Session name: '
-      read -r label
-      [ -z "$label" ] && exit 0
-      LABEL="$(printf '%s' "$label" | tr -c 'a-zA-Z0-9' '_')"
-      SESSION="${BASE}__${LABEL}"
+      read -r raw_label
+      [ -z "$raw_label" ] && exit 0
+      BRANCH="$(branch_name "$raw_label")"
+      SESSION="${BASE}__$(session_label "$BRANCH")"
+      SESSION_DIR="$(resolve_worktree "$PROJECT_PATH" "$PROJECT_REL" "$BRANCH")"
     fi
   else
     SESSION="$BASE"
@@ -65,9 +271,9 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   tmux_attach "$SESSION"
 else
   if [ -n "${TMUX:-}" ]; then
-    tmux new-session -ds "$SESSION" -c "$PROJECT_PATH"
+    tmux new-session -ds "$SESSION" -c "$SESSION_DIR"
     tmux switch-client -t "$SESSION"
   else
-    tmux new-session -s "$SESSION" -c "$PROJECT_PATH"
+    tmux new-session -s "$SESSION" -c "$SESSION_DIR"
   fi
 fi

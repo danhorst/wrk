@@ -3,10 +3,12 @@
 `wrk` is a simple, fast workspace managment CLI tool built on top of `tmux` and `fzf`.
 It lets you find project, or project work session, with fuzzy search and jump straight into a persistent session for it.
 
+Think of it as stripped-down version of [Conductor][1] manifsted as a shell script.
+
 ## Dependencies
 
-- [tmux][1]
-- [fzf][2]
+- [tmux][2]
+- [fzf][3]
 
 ## Installation
 
@@ -82,5 +84,6 @@ Repos are discovered at depth two: `$WRK_PROJECT_ROOT/<org>/<repo>/.git`.
 Special characters in both the project name and session label are replaced with underscores.
 The `__` (double underscore) separates the project name from the label, so sessions for different projects never collide.
 
-[1]: https://github.com/tmux/tmux
-[2]: https://github.com/junegunn/fzf
+[1]: https://www.conductor.build/
+[2]: https://github.com/tmux/tmux
+[3]: https://github.com/junegunn/fzf
