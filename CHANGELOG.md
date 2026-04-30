@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-04-30
+
+### Added
+- `ctrl-o` hotkey in the project picker opens a branch picker for the highlighted project, creating a worktree-backed session without typing the full project path
+- Branch picker lists all local and remote branches (deduplicated); choose `[new]` to type a name and create a fresh branch and worktree in one step
+- Project picker now shows a header hint (`enter: open  |  ctrl-o: open branch as worktree`) for discoverability
+- `--help` documents the `ctrl-o` hotkey and the `--clean` branch/session side-effects
+- README documents `mise` as an optional dependency, `WRK_PORT` assignment and `.env` inheritance, and the full `--clean` workflow
+
 ## [1.2.1] - 2026-04-29
 
 ### Added
@@ -42,7 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/danhorst/wrk/compare/1.2.1...1.3.0
 [1.2.1]: https://github.com/danhorst/wrk/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/danhorst/wrk/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/danhorst/wrk/compare/v1.0.0...v1.1.0
