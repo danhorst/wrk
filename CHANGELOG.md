@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-05-05
+
+### Fixed
+- `mise trust` now runs when opening a main project directory, not only when creating worktrees
+
 ## [1.3.0] - 2026-04-30
 
 ### Added
@@ -51,7 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/danhorst/wrk/compare/1.3.0...1.3.1
 [1.3.0]: https://github.com/danhorst/wrk/compare/1.2.1...1.3.0
 [1.2.1]: https://github.com/danhorst/wrk/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/danhorst/wrk/compare/v1.1.0...v1.2.0
