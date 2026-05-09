@@ -9,6 +9,7 @@ Think of it as stripped-down version of [Conductor][1] that you can use in your 
 
 - [tmux][2]
 - [fzf][3]
+- [tree][5]
 - OPTIONAL: [mise][4]
 
 If `mise` is present, `wrk` runs `mise trust` on each new worktree so that `.env` variables (including `WRK_PORT`) load automatically via mise's env integration.
@@ -142,3 +143,4 @@ The `__` (double underscore) separates the project name from the label, so sessi
 [2]: https://github.com/tmux/tmux
 [3]: https://github.com/junegunn/fzf
 [4]: https://mise.jdx.dev
+[5]: https://github.com/Old-Man-Programmer/tree
