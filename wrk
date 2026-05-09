@@ -116,7 +116,7 @@ pick_branch() {
       git -C "$project_path" branch -r --format='%(refname:short)' 2>/dev/null \
         | sed 's|^origin/||' | grep -v '^HEAD'
     } | sort -u | grep -v '^$' \
-      | fzf --prompt='Branch: ' --header='[new] to type a name, or fuzzy-search existing branches'
+      | fzf --preview '' --prompt='Branch: ' --header='[new] to type a name, or fuzzy-search existing branches'
   ) || return 1
   if [ "$branch" = '[new]' ]; then
     printf 'Branch name: ' >&2
@@ -189,7 +189,7 @@ cmd_clean() {
   if [ "${#merged[@]}" -gt 0 ]; then
     local selected
     selected=$(printf '%s\n' "${merged[@]}" \
-      | fzf --multi --bind 'load:select-all' \
+      | fzf --preview 'tree -C -L 1 {}' --multi --bind 'load:select-all' \
             --prompt='Remove merged worktrees? ' \
             --header='TAB to deselect, ENTER to confirm' || true)
     while IFS= read -r line; do
@@ -200,7 +200,7 @@ cmd_clean() {
   if [ "${#unmerged[@]}" -gt 0 ]; then
     local extra
     extra=$(printf '%s\n' "${unmerged[@]}" \
-      | fzf --multi \
+      | fzf --preview 'tree -C -L 1 {}' --multi \
             --prompt='Also remove unmerged worktrees? ' \
             --header='TAB to select, ENTER to skip' || true)
     while IFS= read -r line; do
@@ -251,7 +251,7 @@ done
 
 _fzf_result=$(printf '%s\n' "${PROJECTS[@]}" \
   | sed "s|^$PROJECT_ROOT/||" \
-  | fzf --prompt='What do you want to work on? ' --query "${1:-}" \
+  | fzf --preview "tree -C -L 1 $PROJECT_ROOT/{}" --prompt='What do you want to work on? ' --query "${1:-}" \
         --expect=ctrl-o \
         --header='enter: open  |  ctrl-o: open branch as worktree')
 
@@ -291,7 +291,7 @@ else
 
   if [ "${#SESSIONS[@]}" -ge 2 ]; then
     SESSION=$(printf '%s\n' "${SESSIONS[@]}" '[new]' \
-      | fzf --prompt='Session? ')
+      | fzf --preview '' --prompt='Session? ')
     [ -z "$SESSION" ] && exit 0
     if [ "$SESSION" = '[new]' ]; then
       printf 'Session name: '
