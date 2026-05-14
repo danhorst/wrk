@@ -19,13 +19,13 @@ If `mise` is present, `wrk` runs `mise trust` on each new worktree so that `.env
 You can install this package with Homebrew.
 
 ```sh
-brew tap danhorst/taps && brew install wrk
+brew tap danhorst/tap && brew install wrk
 ```
 
 OR
 
 ```sh
-brew install danhorst/taps/wrk
+brew install danhorst/tap/wrk
 ```
 
 If you don't want to use homebrew, you can just put `wrk` somewhere on your `$PATH` (e.g. `/usr/local/bin/wrk`) and make it executable:
