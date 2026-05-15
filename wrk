@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.3.2"
+VERSION="1.4.0"
 
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
 WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
@@ -21,6 +21,8 @@ Usage:
 Hotkeys (in the project picker):
   ctrl-o                 Open a branch picker for the highlighted project,
                          creating a worktree-backed session for that branch
+  ctrl-t                 Open a named session for the highlighted project
+                         in the same directory (no worktree)
 
 Labeled sessions are backed by a git worktree in WRK_WORKTREE_ROOT.
 If a branch matching <label> exists locally or on origin, it is checked
@@ -252,8 +254,8 @@ done
 _fzf_result=$(printf '%s\n' "${PROJECTS[@]}" \
   | sed "s|^$PROJECT_ROOT/||" \
   | fzf --preview "tree -C -L 1 $PROJECT_ROOT/{}" --prompt='What do you want to work on? ' --query "${1:-}" \
-        --expect=ctrl-o \
-        --header='enter: open  |  ctrl-o: open branch as worktree')
+        --expect=ctrl-o,ctrl-t \
+        --header='enter: open  |  ctrl-o: open branch as worktree  |  ctrl-t: new session')
 
 [ -z "$_fzf_result" ] && exit 0
 
@@ -281,6 +283,11 @@ elif [ "$_fzf_key" = 'ctrl-o' ]; then
   BRANCH="$(branch_name "$raw_label")"
   SESSION="${BASE}__$(session_label "$BRANCH")"
   SESSION_DIR="$(resolve_worktree "$PROJECT_PATH" "$PROJECT_REL" "$BRANCH")"
+elif [ "$_fzf_key" = 'ctrl-t' ]; then
+  printf 'Session name: ' >&2
+  read -r raw_label
+  [ -z "$raw_label" ] && exit 0
+  SESSION="${BASE}__$(session_label "$raw_label")"
 else
   # Find all existing sessions for this project (default + labeled)
   SESSIONS=()
@@ -290,10 +297,15 @@ else
     | grep -E "^${BASE}(__.*)?$" || true)
 
   if [ "${#SESSIONS[@]}" -ge 2 ]; then
-    SESSION=$(printf '%s\n' "${SESSIONS[@]}" '[new]' \
+    SESSION=$(printf '%s\n' "${SESSIONS[@]}" '[new session]' '[new worktree]' \
       | fzf --preview '' --prompt='Session? ')
     [ -z "$SESSION" ] && exit 0
-    if [ "$SESSION" = '[new]' ]; then
+    if [ "$SESSION" = '[new session]' ]; then
+      printf 'Session name: '
+      read -r raw_label
+      [ -z "$raw_label" ] && exit 0
+      SESSION="${BASE}__$(session_label "$raw_label")"
+    elif [ "$SESSION" = '[new worktree]' ]; then
       printf 'Session name: '
       read -r raw_label
       [ -z "$raw_label" ] && exit 0

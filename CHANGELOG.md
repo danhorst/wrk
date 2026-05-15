@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-15
+
+### Added
+- `ctrl-t` hotkey in the project picker opens a named session for the highlighted project in its main directory — no worktree created; useful for long-running processes like dev servers
+- Multi-session picker splits `[new]` into `[new session]` (same directory, no worktree) and `[new worktree]` (existing branch/worktree behavior)
+- `--help` and README document the `ctrl-t` hotkey
+
 ## [1.3.2] - 2026-05-08
 
 ### Fixed
@@ -64,7 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.3.2...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/danhorst/wrk/compare/1.3.2...1.4.0
 [1.3.2]: https://github.com/danhorst/wrk/compare/1.3.1...1.3.2
 [1.3.1]: https://github.com/danhorst/wrk/compare/1.3.0...1.3.1
 [1.3.0]: https://github.com/danhorst/wrk/compare/1.2.1...1.3.0
