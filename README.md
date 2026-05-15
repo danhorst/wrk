@@ -12,11 +12,11 @@ Think of it as stripped-down version of [Conductor][1] that you can use in your 
 - [tree][4]
 - OPTIONAL: [mise][5]
 
-If `mise` is present, `wrk` runs `mise trust` on each new worktree so that `.env` variables (including `WRK_PORT`) load automatically via mise's env integration.
+If `mise` is present, `wrk` runs `mise trust` on each new [worktree][6] so that `.env` variables (including `WRK_PORT`) load automatically via mise's env integration.
 
 ## Installation
 
-You can install this package with Homebrew.
+You can install this package with [Homebrew][7].
 
 ```sh
 brew tap danhorst/tap && brew install wrk
@@ -28,7 +28,7 @@ OR
 brew install danhorst/tap/wrk
 ```
 
-If you don't want to use homebrew, you can just put `wrk` somewhere on your `$PATH` (e.g. `/usr/local/bin/wrk`) and make it executable:
+If you don't want to use Homebrew, you can just put `wrk` somewhere on your `$PATH` (e.g. `/usr/local/bin/wrk`) and make it executable:
 
 ```sh
 chmod +x wrk
@@ -61,9 +61,15 @@ Opens the same fuzzy search but pre-filters the list to repos matching `webapp`.
 wrk webapp feature-branch
 ```
 
-Attaches to (or creates) a session named `feature-branch` for the `webapp` project, leaving any other sessions for that project untouched.
+Attaches to (or creates) a session named `feature-branch` for the `webapp` project.
 
-When a project already has two or more sessions and no `session-name` is given, a second fuzzy finder appears listing the existing sessions plus a `[new]` option to create an additional named one.
+When a project has two or more sessions and no `session-name` is given, a second fuzzy finder list is presented containing the existing sessions along with the `[new session]` and `[new worktree]` options.
+
+### Named sessions via hotkey
+
+In the project picker, press `ctrl-t` on any highlighted project to open a named session for it in the same directory.
+A “session” _does not_ create a dedicated worktree for the session.
+It is useful for a long-running process like a dev server that should share the working directory with your main session.
 
 ### Worktree sessions via hotkey
 
@@ -82,11 +88,11 @@ This copy happens once, at worktree creation time.
 
 > [!WARNING]
 > `wrk` does not help you keep changes in your `.env` files in sync.
-> You need to do this yourself.
+> You need to do it yourself.
 
 ### Worktree Port Configuration
 
-Since `wrk` lets you spint up the same project in multiple workspaces, we need a way for more than one application server to run without binding to the same port.
+Since `wrk` lets you spin up the same project in multiple workspaces, we need a way for more than one application server to run without binding to the same port.
 To address this, `wrk` adds a unique `WRK_PORT` to the `.env` file in a worktree when it is created.
 If `WRK_PORT` is already set in the parent project, that value will be stripped out when the `.env` file is copied over.
 The value for `WRK_PORT` is guaranteed not to collide with any other worktree's port and not to be already bound on the host.
@@ -144,3 +150,5 @@ The `__` (double underscore) separates the project name from the label, so sessi
 [3]: https://github.com/tmux/tmux
 [4]: https://github.com/Old-Man-Programmer/tree
 [5]: https://mise.jdx.dev
+[6]: https://git-scm.com/docs/git-worktree
+[7]: https://brew.sh
