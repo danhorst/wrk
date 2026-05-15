@@ -13,3 +13,7 @@ Run the release script:
 ```
 
 The script handles CHANGELOG promotion, commit, annotated tag, push, SHA256 fetch, and formula update.
+
+Before running: populate `## [Unreleased]` in CHANGELOG.md with the release notes.
+
+The release commit contains only `wrk` and `CHANGELOG.md` — commit README or any other changes separately before running the script.
