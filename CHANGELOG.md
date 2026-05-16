@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-16
+
+### Added
+- Session indicators throughout all pickers and `--list`: ◆ = attached, ◇ = detached, blank = no session
+- Project picker shows ◆/◇ per project based on live tmux sessions
+- Branch picker (ctrl-o) shows ◆/◇ per branch based on existing worktree sessions
+- Within-project session picker shows ◆/◇ per session
+- `--list` STATUS column uses ◆/◇ instead of `active`/`—`; single upfront `tmux list-sessions` call replaces per-worktree `has-session` loop
+- `--clean` pickers show ◆/◇ so attached sessions are visible before confirming removal
+- `ctrl-x` hotkey in the project picker opens a picker of all live wrk sessions with ◆/◇ indicators and directory tree preview
+
 ## [1.4.0] - 2026-05-15
 
 ### Added
@@ -71,7 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/danhorst/wrk/compare/1.4.0...1.5.0
 [1.4.0]: https://github.com/danhorst/wrk/compare/1.3.2...1.4.0
 [1.3.2]: https://github.com/danhorst/wrk/compare/1.3.1...1.3.2
 [1.3.1]: https://github.com/danhorst/wrk/compare/1.3.0...1.3.1

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.4.0"
+VERSION="1.5.0"
 
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
 WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
@@ -19,10 +19,17 @@ Usage:
   wrk --help             Show this help
 
 Hotkeys (in the project picker):
-  ctrl-o                 Open a branch picker for the highlighted project,
-                         creating a worktree-backed session for that branch
+  ctrl-o                 Open a branch picker for the highlighted project;
+                         creates a worktree-backed session for the chosen branch
   ctrl-t                 Open a named session for the highlighted project
                          in the same directory (no worktree)
+  ctrl-x                 Switch to a picker of all live wrk sessions,
+                         showing ◆ attached and ◇ detached
+
+Session indicators (project picker, branch picker, session pickers, --list):
+  ◆                      Session is currently attached
+  ◇                      Session exists but is detached
+  (none)                 No active session
 
 Labeled sessions are backed by a git worktree in WRK_WORKTREE_ROOT.
 If a branch matching <label> exists locally or on origin, it is checked
@@ -110,16 +117,49 @@ resolve_worktree() {
 
 pick_branch() {
   local project_path="$1"
-  local branch
-  branch=$(
+  local base="wrk-$(session_label "$(basename "$project_path")")"
+
+  local sess_info attached_sess all_sess
+  sess_info=$(tmux list-sessions \
+    -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null \
+    | grep -E "^${base}__" || true)
+  attached_sess=$(printf '%s\n' "$sess_info" | awk -F'\t' '$2>0{print $1}')
+  all_sess=$(printf '%s\n' "$sess_info" | cut -f1)
+
+  local branches
+  branches=$(
     {
       printf '[new]\n'
       git -C "$project_path" branch --format='%(refname:short)' 2>/dev/null
       git -C "$project_path" branch -r --format='%(refname:short)' 2>/dev/null \
         | sed 's|^origin/||' | grep -v '^HEAD'
-    } | sort -u | grep -v '^$' \
-      | fzf --preview '' --prompt='Branch: ' --header='[new] to type a name, or fuzzy-search existing branches'
-  ) || return 1
+    } | sort -u | grep -v '^$'
+  )
+
+  local lines=() ind sname
+  while IFS= read -r b; do
+    if [ "$b" = '[new]' ]; then
+      lines+=("$b"$'\t'"  $b")
+    else
+      sname="${base}__$(session_label "$b")"
+      if printf '%s\n' "$attached_sess" | grep -qFx "$sname"; then
+        ind='◆'
+      elif printf '%s\n' "$all_sess" | grep -qFx "$sname"; then
+        ind='◇'
+      else
+        ind=' '
+      fi
+      lines+=("$b"$'\t'"$ind $b")
+    fi
+  done <<< "$branches"
+
+  local branch
+  branch=$(printf '%s\n' "${lines[@]}" \
+    | fzf --delimiter=$'\t' --with-nth=2 \
+          --preview '' --prompt='Branch: ' \
+          --header='[new] for new branch  ◆ attached  ◇ detached') || return 1
+
+  branch=$(printf '%s' "$branch" | cut -f1)
   if [ "$branch" = '[new]' ]; then
     printf 'Branch name: ' >&2
     read -r branch
@@ -128,7 +168,9 @@ pick_branch() {
 }
 
 cmd_list() {
-  local found=false
+  local found=false sess_info attached ind
+  sess_info=$(tmux list-sessions \
+    -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null || true)
   printf '%-42s %-30s %-8s %s\n' 'WORKTREE' 'BRANCH' 'PORT' 'STATUS'
   for wt in "$WORKTREE_ROOT"/*/*/*; do
     [ -e "$wt/.git" ] || continue
@@ -141,9 +183,12 @@ cmd_list() {
     local port
     port=$(grep '^WRK_PORT=' "$wt/.env" 2>/dev/null | cut -d= -f2 || echo '—')
     local sname="wrk-$(session_label "$(basename "$org_project")")__$(session_label "$label")"
-    local status
-    tmux has-session -t "$sname" 2>/dev/null && status='active' || status='—'
-    printf '%-42s %-30s %-8s %s\n' "$rel" "$branch" "$port" "$status"
+    attached=$(printf '%s\n' "$sess_info" | awk -F'\t' -v s="$sname" '$1==s{print $2; exit}')
+    if [ -z "$attached" ]; then ind=' '
+    elif [ "$attached" -gt 0 ]; then ind='◆'
+    else ind='◇'
+    fi
+    printf '%-42s %-30s %-8s %s\n' "$rel" "$branch" "$port" "$ind"
   done
   $found || echo 'No worktrees found.'
 }
@@ -187,26 +232,48 @@ cmd_clean() {
   fi
 
   local to_remove=()
+  local clean_sess_info
+  clean_sess_info=$(tmux list-sessions \
+    -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null || true)
+
+  _clean_lines() {
+    local rel org_project label sname att ind
+    for rel in "$@"; do
+      org_project="${rel%/*}"
+      label="${rel##*/}"
+      sname="wrk-$(session_label "$(basename "$org_project")")__$(session_label "$label")"
+      att=$(printf '%s\n' "$clean_sess_info" | awk -F'\t' -v s="$sname" '$1==s{print $2; exit}')
+      if [ -z "$att" ]; then ind=' '
+      elif [ "$att" -gt 0 ]; then ind='◆'
+      else ind='◇'
+      fi
+      printf '%s\t%s %s\n' "$rel" "$ind" "$rel"
+    done
+  }
 
   if [ "${#merged[@]}" -gt 0 ]; then
     local selected
-    selected=$(printf '%s\n' "${merged[@]}" \
-      | fzf --preview 'tree -C -L 1 {}' --multi --bind 'load:select-all' \
+    selected=$(_clean_lines "${merged[@]}" \
+      | fzf --delimiter=$'\t' --with-nth=2 \
+            --preview "tree -C -L 1 $WORKTREE_ROOT/{1}" \
+            --multi --bind 'load:select-all' \
             --prompt='Remove merged worktrees? ' \
-            --header='TAB to deselect, ENTER to confirm' || true)
+            --header='TAB to deselect, ENTER to confirm  ◆ attached  ◇ detached' || true)
     while IFS= read -r line; do
-      [ -n "$line" ] && to_remove+=("$line")
+      [ -n "$line" ] && to_remove+=("$(printf '%s' "$line" | cut -f1)")
     done <<< "$selected"
   fi
 
   if [ "${#unmerged[@]}" -gt 0 ]; then
     local extra
-    extra=$(printf '%s\n' "${unmerged[@]}" \
-      | fzf --preview 'tree -C -L 1 {}' --multi \
+    extra=$(_clean_lines "${unmerged[@]}" \
+      | fzf --delimiter=$'\t' --with-nth=2 \
+            --preview "tree -C -L 1 $WORKTREE_ROOT/{1}" \
+            --multi \
             --prompt='Also remove unmerged worktrees? ' \
-            --header='TAB to select, ENTER to skip' || true)
+            --header='TAB to select, ENTER to skip  ◆ attached  ◇ detached' || true)
     while IFS= read -r line; do
-      [ -n "$line" ] && to_remove+=("$line")
+      [ -n "$line" ] && to_remove+=("$(printf '%s' "$line" | cut -f1)")
     done <<< "$extra"
   fi
 
@@ -251,16 +318,59 @@ done
 
 [ "${#PROJECTS[@]}" -eq 0 ] && exit 0
 
-_fzf_result=$(printf '%s\n' "${PROJECTS[@]}" \
-  | sed "s|^$PROJECT_ROOT/||" \
-  | fzf --preview "tree -C -L 1 $PROJECT_ROOT/{}" --prompt='What do you want to work on? ' --query "${1:-}" \
-        --expect=ctrl-o,ctrl-t \
-        --header='enter: open  |  ctrl-o: open branch as worktree  |  ctrl-t: new session')
+# ◆ = session attached, ◇ = session detached, ' ' = no session
+_session_info=$(tmux list-sessions \
+  -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null | grep '^wrk-' || true)
+_attached_sessions=$(printf '%s\n' "$_session_info" | awk -F'\t' '$2>0{print $1}')
+_all_sessions=$(printf '%s\n' "$_session_info" | cut -f1)
+_project_lines=()
+for _p in "${PROJECTS[@]}"; do
+  _rel="${_p#"$PROJECT_ROOT"/}"
+  _base="wrk-$(session_label "$(basename "$_p")")"
+  if printf '%s\n' "$_attached_sessions" | grep -qE "^${_base}(__.*)?$"; then
+    _ind='◆'
+  elif printf '%s\n' "$_all_sessions" | grep -qE "^${_base}(__.*)?$"; then
+    _ind='◇'
+  else
+    _ind=' '
+  fi
+  _project_lines+=("$_rel"$'\t'"$_ind $_rel")
+done
+
+_fzf_result=$(printf '%s\n' "${_project_lines[@]}" \
+  | fzf --delimiter=$'\t' --with-nth=2 \
+        --preview "tree -C -L 1 $PROJECT_ROOT/{1}" \
+        --prompt='What do you want to work on? ' --query "${1:-}" \
+        --expect=ctrl-o,ctrl-t,ctrl-x \
+        --header='<C-o>: + worktree  <C-t>: + session  <C-x>: filter active')
 
 [ -z "$_fzf_result" ] && exit 0
 
 _fzf_key=$(printf '%s' "$_fzf_result" | head -1)
-PROJECT_PATH=$(printf '%s' "$_fzf_result" | tail -1)
+_fzf_line=$(printf '%s' "$_fzf_result" | tail -1)
+
+if [ "$_fzf_key" = 'ctrl-x' ]; then
+  _raw=$(tmux list-sessions \
+    -F '#{session_name}'$'\t''#{session_attached}'$'\t''#{session_path}' 2>/dev/null \
+    | grep '^wrk-' || true)
+  [ -z "$_raw" ] && exit 0
+  _sess=$(printf '%s' "$_raw" \
+    | awk -F'\t' '{ind=($2>0)?"◆":"◇"; printf "%s\t%s %s\t%s\n", $1, ind, $1, $3}' \
+    | fzf --delimiter=$'\t' --with-nth=2 \
+          --preview 'tree -C -L 1 {3}' \
+          --prompt='Session: ' \
+          --header='enter: attach') || true
+  [ -z "$_sess" ] && exit 0
+  _sname=$(printf '%s' "$_sess" | cut -f1)
+  if [ -n "${TMUX:-}" ]; then
+    tmux switch-client -t "$_sname"
+  else
+    tmux attach -d -t "$_sname"
+  fi
+  exit 0
+fi
+
+PROJECT_PATH=$(printf '%s' "$_fzf_line" | cut -f1)
 
 [ -z "$PROJECT_PATH" ] && exit 0
 
@@ -290,16 +400,29 @@ elif [ "$_fzf_key" = 'ctrl-t' ]; then
   SESSION="${BASE}__$(session_label "$raw_label")"
 else
   # Find all existing sessions for this project (default + labeled)
-  SESSIONS=()
-  while IFS= read -r s; do
-    SESSIONS+=("$s")
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null \
+  _sess_info=$(tmux list-sessions \
+    -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null \
     | grep -E "^${BASE}(__.*)?$" || true)
 
+  SESSIONS=()
+  while IFS= read -r s; do
+    [ -n "$s" ] && SESSIONS+=("$s")
+  done < <(printf '%s\n' "$_sess_info" | cut -f1)
+
   if [ "${#SESSIONS[@]}" -ge 2 ]; then
-    SESSION=$(printf '%s\n' "${SESSIONS[@]}" '[new session]' '[new worktree]' \
-      | fzf --preview '' --prompt='Session? ')
+    _sess_lines=()
+    for _s in "${SESSIONS[@]}"; do
+      _att=$(printf '%s\n' "$_sess_info" | awk -F'\t' -v n="$_s" '$1==n{print $2; exit}')
+      [ "${_att:-0}" -gt 0 ] && _ind='◆' || _ind='◇'
+      _sess_lines+=("$_s"$'\t'"$_ind $_s")
+    done
+    _sess_lines+=('[new session]'$'\t''  [new session]')
+    _sess_lines+=('[new worktree]'$'\t''  [new worktree]')
+
+    SESSION=$(printf '%s\n' "${_sess_lines[@]}" \
+      | fzf --delimiter=$'\t' --with-nth=2 --preview '' --prompt='Session? ') || true
     [ -z "$SESSION" ] && exit 0
+    SESSION=$(printf '%s' "$SESSION" | cut -f1)
     if [ "$SESSION" = '[new session]' ]; then
       printf 'Session name: '
       read -r raw_label
