@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-05-16
+
+### Fixed
+- `ctrl-x` with no active sessions now shows a status-bar message and returns to the project picker instead of silently exiting
+
 ## [1.5.0] - 2026-05-16
 
 ### Added
@@ -82,7 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/danhorst/wrk/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/danhorst/wrk/compare/1.4.0...1.5.0
 [1.4.0]: https://github.com/danhorst/wrk/compare/1.3.2...1.4.0
 [1.3.2]: https://github.com/danhorst/wrk/compare/1.3.1...1.3.2

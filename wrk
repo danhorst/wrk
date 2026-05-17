@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.5.0"
+VERSION="1.5.1"
 
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
 WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
@@ -353,7 +353,10 @@ if [ "$_fzf_key" = 'ctrl-x' ]; then
   _raw=$(tmux list-sessions \
     -F '#{session_name}'$'\t''#{session_attached}'$'\t''#{session_path}' 2>/dev/null \
     | grep '^wrk-' || true)
-  [ -z "$_raw" ] && exit 0
+  if [ -z "$_raw" ]; then
+    tmux display-message "No active wrk sessions"
+    exec "$0" "$@"
+  fi
   _sess=$(printf '%s' "$_raw" \
     | awk -F'\t' '{ind=($2>0)?"◆":"◇"; printf "%s\t%s %s\t%s\n", $1, ind, $1, $3}' \
     | fzf --delimiter=$'\t' --with-nth=2 \
