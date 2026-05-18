@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-05-18
+
+### Performance
+- Project picker startup drops from ~6s to ~0.1s on a 65-repo machine by replacing `tr`/`sed`/`grep`/`dirname`/`basename` pipelines with bash built-in parameter expansion and an in-process array walk (~650 fewer subprocess forks)
+
 ## [1.5.2] - 2026-05-17
 
 ### Fixed
@@ -96,7 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.5.2...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.5.3...HEAD
+[1.5.3]: https://github.com/danhorst/wrk/compare/1.5.2...1.5.3
 [1.5.2]: https://github.com/danhorst/wrk/compare/1.5.1...1.5.2
 [1.5.1]: https://github.com/danhorst/wrk/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/danhorst/wrk/compare/1.4.0...1.5.0
