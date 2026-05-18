@@ -74,10 +74,12 @@ jobs:
       - name: Create wrk release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NOTES: ${{ steps.changelog.outputs.notes }}
         run: |
+          printf '%s' "$RELEASE_NOTES" > /tmp/release-notes.md
           gh release create "${{ steps.version.outputs.tag }}" \
             --title "${{ steps.version.outputs.tag }}" \
-            --notes "${{ steps.changelog.outputs.notes }}"
+            --notes-file /tmp/release-notes.md
 
       - name: Upload bottle to tap release
         env:
