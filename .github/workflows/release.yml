@@ -125,7 +125,7 @@ jobs:
 
           text = re.sub(
             r'url "https://github\.com/danhorst/wrk/archive/refs/tags/v[^"]+"',
-            f'url "https://github.com/danhorst/wrk/archive/refs/tags/{tag}"',
+            f'url "https://github.com/danhorst/wrk/archive/refs/tags/{tag}.tar.gz"',
             text,
           )
           # 2-space indent: source sha256 (outside bottle block)
