@@ -51,26 +51,6 @@ jobs:
           SHA=$(curl -sL "$URL" | sha256sum | cut -d' ' -f1)
           echo "source=$SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Build bottle
-        id: bottle
-        run: |
-          BARE="${{ steps.version.outputs.bare }}"
-          BOTTLE_NAME="wrk-${BARE}.arm64_tahoe.bottle.tar.gz"
-
-          # Replicate what `brew bottle` produces: formula/version/bin/script
-          mkdir -p "bottle/wrk/${BARE}/bin"
-          cp wrk "bottle/wrk/${BARE}/bin/wrk"
-          chmod 755 "bottle/wrk/${BARE}/bin/wrk"
-
-          cd bottle
-          tar czf "../${BOTTLE_NAME}" wrk
-          cd ..
-
-          SHA=$(sha256sum "${BOTTLE_NAME}" | cut -d' ' -f1)
-          echo "filename=$BOTTLE_NAME" >> "$GITHUB_OUTPUT"
-          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
-          echo "root_url=https://github.com/danhorst/homebrew-tap/releases/download/wrk-${BARE}" >> "$GITHUB_OUTPUT"
-
       - name: Create wrk release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -81,33 +61,12 @@ jobs:
             --title "${{ steps.version.outputs.tag }}" \
             --notes-file /tmp/release-notes.md
 
-      - name: Upload bottle to tap release
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          BARE="${{ steps.version.outputs.bare }}"
-          RELEASE_TAG="wrk-${BARE}"
-
-          # Create (or ensure) a release on the tap repo to host the bottle
-          gh release create "$RELEASE_TAG" \
-            --repo danhorst/homebrew-tap \
-            --title "$RELEASE_TAG" \
-            --notes "Bottle for wrk ${BARE}" \
-            2>/dev/null || true
-
-          gh release upload "$RELEASE_TAG" \
-            "${{ steps.bottle.outputs.filename }}" \
-            --repo danhorst/homebrew-tap \
-            --clobber
-
       - name: Update tap formula
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
           BARE: ${{ steps.version.outputs.bare }}
           SOURCE_SHA: ${{ steps.sha.outputs.source }}
-          BOTTLE_SHA: ${{ steps.bottle.outputs.sha256 }}
-          ROOT_URL: ${{ steps.bottle.outputs.root_url }}
         run: |
           git clone "https://x-access-token:${GH_TOKEN}@github.com/danhorst/homebrew-tap.git" tap
 
@@ -116,10 +75,7 @@ jobs:
 
           formula_path = "tap/Formula/wrk.rb"
           tag     = os.environ["TAG"]
-          bare    = os.environ["BARE"]
           src_sha = os.environ["SOURCE_SHA"]
-          bot_sha = os.environ["BOTTLE_SHA"]
-          root    = os.environ["ROOT_URL"]
 
           text = open(formula_path).read()
 
@@ -128,22 +84,9 @@ jobs:
             f'url "https://github.com/danhorst/wrk/archive/refs/tags/{tag}.tar.gz"',
             text,
           )
-          # 2-space indent: source sha256 (outside bottle block)
           text = re.sub(
             r'^  sha256 "[a-f0-9]+"',
             f'  sha256 "{src_sha}"',
-            text,
-            flags=re.MULTILINE,
-          )
-          text = re.sub(
-            r'root_url "[^"]+"',
-            f'root_url "{root}"',
-            text,
-          )
-          # 4-space indent: bottle sha256 (inside bottle block)
-          text = re.sub(
-            r'^    sha256 cellar: :any_skip_relocation, arm64_tahoe: "[a-f0-9]+"',
-            f'    sha256 cellar: :any_skip_relocation, arm64_tahoe: "{bot_sha}"',
             text,
             flags=re.MULTILINE,
           )
