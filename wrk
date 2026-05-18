@@ -53,7 +53,7 @@ EOF
 branch_name() { printf '%s' "$1" | tr -c 'a-zA-Z0-9._-' '-'; }
 
 # Sanitize a branch name into a tmux-safe session suffix (hyphens become underscores).
-session_label() { printf '%s' "$1" | tr -c 'a-zA-Z0-9' '_'; }
+session_label() { local s="${1//[!a-zA-Z0-9]/_}"; printf '%s' "$s"; }
 
 setup_worktree_env() {
   local project_path="$1" worktree_path="$2"
@@ -316,23 +316,32 @@ esac
 PROJECTS=()
 for gitdir in "$PROJECT_ROOT"/*/*/.git; do
   [ -d "$gitdir" ] || continue
-  PROJECTS+=( "$(dirname "$gitdir")" )
+  PROJECTS+=( "${gitdir%/.git}" )
 done
 
 [ "${#PROJECTS[@]}" -eq 0 ] && exit 0
 
 # ◆ = session attached, ◇ = session detached, ' ' = no session
-_session_info=$(tmux list-sessions \
-  -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null | grep '^wrk-' || true)
-_attached_sessions=$(printf '%s\n' "$_session_info" | awk -F'\t' '$2>0{print $1}')
-_all_sessions=$(printf '%s\n' "$_session_info" | cut -f1)
+_sess_all=() _sess_attached=()
+while IFS=$'\t' read -r _sn _sa; do
+  [[ "$_sn" == wrk-* ]] || continue
+  _sess_all+=("$_sn")
+  [[ "${_sa:-0}" -gt 0 ]] && _sess_attached+=("$_sn")
+done < <(tmux list-sessions -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null || true)
+
+_sess_match() {
+  local base="$1" s; shift
+  for s in "$@"; do [[ "$s" == "$base" || "$s" == "${base}__"* ]] && return 0; done
+  return 1
+}
+
 _project_lines=()
 for _p in "${PROJECTS[@]}"; do
   _rel="${_p#"$PROJECT_ROOT"/}"
-  _base="wrk-$(session_label "$(basename "$_p")")"
-  if printf '%s\n' "$_attached_sessions" | grep -qE "^${_base}(__.*)?$"; then
+  _base="wrk-$(session_label "${_p##*/}")"
+  if _sess_match "$_base" "${_sess_attached[@]+"${_sess_attached[@]}"}"; then
     _ind='◆'
-  elif printf '%s\n' "$_all_sessions" | grep -qE "^${_base}(__.*)?$"; then
+  elif _sess_match "$_base" "${_sess_all[@]+"${_sess_all[@]}"}"; then
     _ind='◇'
   else
     _ind=' '
