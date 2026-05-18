@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-05-17
+
+### Fixed
+- `--clean` now fetches the base branch from origin before checking merge status, preventing false positives when local refs are stale
+- Branch picker (`ctrl-o`) prunes deleted remote branches before listing, keeping stale entries out of the picker
+
+### Changed
+- Release workflow supports manual trigger (`workflow_dispatch`) for re-running or testing without a new tag push
+
 ## [1.5.1] - 2026-05-16
 
 ### Fixed
@@ -87,7 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.5.2...HEAD
+[1.5.2]: https://github.com/danhorst/wrk/compare/1.5.1...1.5.2
 [1.5.1]: https://github.com/danhorst/wrk/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/danhorst/wrk/compare/1.4.0...1.5.0
 [1.4.0]: https://github.com/danhorst/wrk/compare/1.3.2...1.4.0

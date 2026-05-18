@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.5.1"
+VERSION="1.5.2"
 
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
 WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
@@ -119,6 +119,8 @@ pick_branch() {
   local project_path="$1"
   local base="wrk-$(session_label "$(basename "$project_path")")"
 
+  git -C "$project_path" fetch --quiet --prune origin 2>/dev/null || true
+
   local sess_info attached_sess all_sess
   sess_info=$(tmux list-sessions \
     -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null \
@@ -217,6 +219,7 @@ cmd_clean() {
 
     local base
     base=$(git -C "$source" symbolic-ref --short HEAD 2>/dev/null) || base='main'
+    git -C "$source" fetch --quiet origin "$base" 2>/dev/null || true
 
     if git -C "$source" branch --merged "origin/$base" 2>/dev/null \
         | grep -qE "^[[:space:]]*${branch}$"; then
