@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-05-28
+
+### Fixed
+- New worktree sessions open in the worktree directory on first creation; `git worktree add` stdout was being captured by the command substitution that resolves the session directory, producing an invalid path and causing tmux to fall back to the working directory where `wrk` was invoked
+
 ## [1.5.3] - 2026-05-18
 
 ### Performance
@@ -101,7 +106,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.5.3...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.5.4...HEAD
+[1.5.4]: https://github.com/danhorst/wrk/compare/1.5.3...1.5.4
 [1.5.3]: https://github.com/danhorst/wrk/compare/1.5.2...1.5.3
 [1.5.2]: https://github.com/danhorst/wrk/compare/1.5.1...1.5.2
 [1.5.1]: https://github.com/danhorst/wrk/compare/v1.5.0...v1.5.1

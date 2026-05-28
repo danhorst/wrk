@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.5.3"
+VERSION="1.5.4"
 
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
 WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
@@ -100,13 +100,13 @@ resolve_worktree() {
 
   if [ ! -d "$wt" ]; then
     if git -C "$project_path" show-ref --verify --quiet "refs/heads/$branch"; then
-      git -C "$project_path" worktree add "$wt" "$branch"
+      git -C "$project_path" worktree add "$wt" "$branch" >&2
     else
       git -C "$project_path" fetch --quiet origin 2>/dev/null || true
       if git -C "$project_path" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-        git -C "$project_path" worktree add --track -b "$branch" "$wt" "origin/$branch"
+        git -C "$project_path" worktree add --track -b "$branch" "$wt" "origin/$branch" >&2
       else
-        git -C "$project_path" worktree add -b "$branch" "$wt"
+        git -C "$project_path" worktree add -b "$branch" "$wt" >&2
       fi
     fi
   fi
