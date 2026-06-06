@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-06-06
+
+### Fixed
+- Default session is now matched correctly in the multi-session picker. The previous regex was anchored to end-of-line and didn't account for the trailing tab/attached-count field, so the bare `$BASE` session never appeared in `_sess_info` — leaving `[default]` without its ◆/◇ indicator and underlying the named-session-not-viewable issue addressed cosmetically in v1.6.1
+- `[default]` is now always emitted as the first entry in the sub-picker with its real indicator, and the default session is no longer duplicated under its raw `wrk-…` name
+
 ## [1.6.1] - 2026-06-06
 
 ### Fixed
@@ -119,7 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.6.2...HEAD
+[1.6.2]: https://github.com/danhorst/wrk/compare/1.6.1...1.6.2
 [1.6.1]: https://github.com/danhorst/wrk/compare/1.6.0...1.6.1
 [1.6.0]: https://github.com/danhorst/wrk/compare/1.5.4...1.6.0
 [1.5.4]: https://github.com/danhorst/wrk/compare/1.5.3...1.5.4

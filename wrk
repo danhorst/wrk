@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.6.1"
+VERSION="1.6.2"
 
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
 WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
@@ -417,7 +417,7 @@ else
   # Find all existing sessions for this project (default + labeled)
   _sess_info=$(tmux list-sessions \
     -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null \
-    | grep -E "^${BASE}(__.*)?$" || true)
+    | awk -F'\t' -v b="$BASE" '$1==b || index($1, b"__")==1' || true)
 
   SESSIONS=()
   while IFS= read -r s; do
@@ -427,14 +427,18 @@ else
   if [ "${#SESSIONS[@]}" -ge 2 ] || \
      { [ "${#SESSIONS[@]}" -eq 1 ] && [ "${SESSIONS[0]}" != "$BASE" ]; }; then
     _sess_lines=()
+    _base_att=$(printf '%s\n' "$_sess_info" | awk -F'\t' -v n="$BASE" '$1==n{print $2; exit}')
+    if [ "${_base_att:-0}" -gt 0 ]; then _ind='◆'
+    elif [ -n "$_base_att" ]; then _ind='◇'
+    else _ind=' '
+    fi
+    _sess_lines+=("$BASE"$'\t'"$_ind [default]")
     for _s in "${SESSIONS[@]}"; do
+      [ "$_s" = "$BASE" ] && continue
       _att=$(printf '%s\n' "$_sess_info" | awk -F'\t' -v n="$_s" '$1==n{print $2; exit}')
       [ "${_att:-0}" -gt 0 ] && _ind='◆' || _ind='◇'
       _sess_lines+=("$_s"$'\t'"$_ind $_s")
     done
-    _has_base=false
-    for _s in "${SESSIONS[@]}"; do [ "$_s" = "$BASE" ] && _has_base=true && break; done
-    $_has_base || _sess_lines+=("$BASE"$'\t''  [default]')
     _sess_lines+=('[new session]'$'\t''  [new session]')
     _sess_lines+=('[new worktree]'$'\t''  [new worktree]')
 
