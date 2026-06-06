@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.6.0"
+VERSION="1.6.1"
 
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
 WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
@@ -424,13 +424,17 @@ else
     [ -n "$s" ] && SESSIONS+=("$s")
   done < <(printf '%s\n' "$_sess_info" | cut -f1)
 
-  if [ "${#SESSIONS[@]}" -ge 2 ]; then
+  if [ "${#SESSIONS[@]}" -ge 2 ] || \
+     { [ "${#SESSIONS[@]}" -eq 1 ] && [ "${SESSIONS[0]}" != "$BASE" ]; }; then
     _sess_lines=()
     for _s in "${SESSIONS[@]}"; do
       _att=$(printf '%s\n' "$_sess_info" | awk -F'\t' -v n="$_s" '$1==n{print $2; exit}')
       [ "${_att:-0}" -gt 0 ] && _ind='◆' || _ind='◇'
       _sess_lines+=("$_s"$'\t'"$_ind $_s")
     done
+    _has_base=false
+    for _s in "${SESSIONS[@]}"; do [ "$_s" = "$BASE" ] && _has_base=true && break; done
+    $_has_base || _sess_lines+=("$BASE"$'\t''  [default]')
     _sess_lines+=('[new session]'$'\t''  [new session]')
     _sess_lines+=('[new worktree]'$'\t''  [new worktree]')
 

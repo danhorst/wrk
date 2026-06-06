@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-06-06
+
+### Fixed
+- Session picker now appears when a project has only named (non-worktree) sessions and no default session; previously the default session was opened unconditionally, hiding the named ones
+- Projects with only labeled sessions now include a `[default]` option in the session picker, making the unlabeled base session reachable without exiting the picker
+
 ## [1.6.0] - 2026-06-05
 
 ### Added
@@ -113,7 +119,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/danhorst/wrk/compare/1.6.0...1.6.1
 [1.6.0]: https://github.com/danhorst/wrk/compare/1.5.4...1.6.0
 [1.5.4]: https://github.com/danhorst/wrk/compare/1.5.3...1.5.4
 [1.5.3]: https://github.com/danhorst/wrk/compare/1.5.2...1.5.3
