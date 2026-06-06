@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.5.4"
+VERSION="1.6.0"
 
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
 WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
@@ -474,8 +474,10 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 else
   if [ -n "${TMUX:-}" ]; then
     tmux new-session -ds "$SESSION" -c "$SESSION_DIR"
+    tmux set-option -t "$SESSION" allow-passthrough on || true
     tmux switch-client -t "$SESSION"
   else
     tmux new-session -s "$SESSION" -c "$SESSION_DIR"
+    tmux set-option allow-passthrough on || true
   fi
 fi

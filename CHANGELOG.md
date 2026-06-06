@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-05
+
+### Added
+
+- Set `allow-passthrough on` on all new tmux sessions so cmux notification rings and tab badges work out of the box when running Claude Code or other OSC-aware agents inside `wrk` sessions.
+  Degrades gracefully on tmux < 3.3.
+
 ## [1.5.4] - 2026-05-28
 
 ### Fixed
@@ -106,7 +113,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.5.4...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/danhorst/wrk/compare/1.5.4...1.6.0
 [1.5.4]: https://github.com/danhorst/wrk/compare/1.5.3...1.5.4
 [1.5.3]: https://github.com/danhorst/wrk/compare/1.5.2...1.5.3
 [1.5.2]: https://github.com/danhorst/wrk/compare/1.5.1...1.5.2
