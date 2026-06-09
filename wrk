@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.6.2"
+VERSION="1.6.3"
 
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
 WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
@@ -468,22 +468,24 @@ if command -v mise &>/dev/null && [ "$SESSION_DIR" = "$PROJECT_PATH" ]; then
   mise trust "$SESSION_DIR" &>/dev/null
 fi
 
-# Attach or create — use switch-client when already inside tmux
+# Attach or create — use switch-client when already inside tmux.
+# `=` prefix forces exact-name targeting; without it tmux falls back to prefix
+# match and `wrk-foo` would resolve to an existing `wrk-foo__bar`.
 tmux_attach() {
   if [ -n "${TMUX:-}" ]; then
-    tmux switch-client -t "$1"
+    tmux switch-client -t "=$1"
   else
-    tmux attach -d -t "$1"
+    tmux attach -d -t "=$1"
   fi
 }
 
-if tmux has-session -t "$SESSION" 2>/dev/null; then
+if tmux has-session -t "=$SESSION" 2>/dev/null; then
   tmux_attach "$SESSION"
 else
   if [ -n "${TMUX:-}" ]; then
     tmux new-session -ds "$SESSION" -c "$SESSION_DIR"
-    tmux set-option -t "$SESSION" allow-passthrough on || true
-    tmux switch-client -t "$SESSION"
+    tmux set-option -t "=$SESSION" allow-passthrough on || true
+    tmux switch-client -t "=$SESSION"
   else
     tmux new-session -s "$SESSION" -c "$SESSION_DIR"
     tmux set-option allow-passthrough on || true

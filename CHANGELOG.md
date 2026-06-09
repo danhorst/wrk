@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-06-09
+
+### Fixed
+- Selecting `[default]` in the sub-picker now creates a fresh default session instead of attaching to an existing labeled session for the same project. tmux's target syntax falls back to prefix matching, so `wrk-foo` was resolving to an existing `wrk-foo__bar`; targets are now anchored with `=` for exact-name matching
+
 ## [1.6.2] - 2026-06-06
 
 ### Fixed
@@ -125,7 +130,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.6.2...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.6.3...HEAD
+[1.6.3]: https://github.com/danhorst/wrk/compare/1.6.2...1.6.3
 [1.6.2]: https://github.com/danhorst/wrk/compare/1.6.1...1.6.2
 [1.6.1]: https://github.com/danhorst/wrk/compare/1.6.0...1.6.1
 [1.6.0]: https://github.com/danhorst/wrk/compare/1.5.4...1.6.0
