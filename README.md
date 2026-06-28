@@ -120,6 +120,31 @@ For each removed worktree, `wrk` also:
 - Deletes the local git branch (using `git branch -d`; skipped with a warning if the branch has unmerged commits)
 - Kills the associated tmux session if one is running
 
+### PKM vault sessions
+
+`wrk` can also manage sessions for personal-knowledge-management workspaces — Obsidian vaults or OKF Knowledge Bundles — that are _not_ git-backed and live anywhere on disk.
+
+Flag a directory as a vault by creating a marker file at its root:
+
+```sh
+touch ~/notes/.wrk-vault
+```
+
+Then point `WRK_VAULT_ROOTS` at the vault, or at a folder of vaults:
+
+```sh
+export WRK_VAULT_ROOTS="$HOME/notes"          # a single vault
+export WRK_VAULT_ROOTS="$HOME/vaults"         # a folder scanned one level deep
+export WRK_VAULT_ROOTS="$HOME/notes:$HOME/vaults"  # several, colon-separated
+```
+
+Each entry is either a vault itself (it contains the marker) or a folder whose immediate subdirectories are checked for the marker.
+Vaults appear in the main picker tagged with 📓.
+Selecting one opens (or resumes) a plain session rooted at the vault — there is no worktree, branch, or `WRK_PORT`, since vaults aren't git repos.
+`ctrl-t` still opens named sub-sessions (`wrk-vault-<name>__<label>`); `ctrl-o` has no effect on a vault.
+
+The marker filename defaults to `.wrk-vault` and can be changed with `WRK_VAULT_MARKER`.
+
 ### Inside an existing tmux session
 
 `wrk` works the same way from inside tmux.
@@ -131,8 +156,11 @@ In an existing tmux session, it uses `switch-client` instead of `attach`, so you
 | ------------------- | ------------------ | -------------------------------- |
 | `WRK_PROJECT_ROOT`  | `~/git`            | Root directory scanned for repos |
 | `WRK_WORKTREE_ROOT` | `~/.wrk/worktrees` | Root directory for worktrees     |
+| `WRK_VAULT_ROOTS`   | _(unset)_          | Colon-separated vaults or folders of vaults |
+| `WRK_VAULT_MARKER`  | `.wrk-vault`       | Filename that flags a vault root |
 
 Repos are discovered at depth two: `$WRK_PROJECT_ROOT/<org>/<repo>/.git`.
+Vaults are discovered from `WRK_VAULT_ROOTS`: each entry is either a vault (it contains the marker file) or a folder scanned one level deep for vaults.
 
 ## Session naming
 
@@ -141,9 +169,12 @@ Repos are discovered at depth two: `$WRK_PROJECT_ROOT/<org>/<repo>/.git`.
 | `~/git/acme/webapp`                          | `wrk-webapp`                 |
 | `~/git/acme/webapp` + label `feature-branch` | `wrk-webapp__feature-branch` |
 | `~/git/acme/my-app`                          | `wrk-my_app`                 |
+| `~/notes` (vault)                            | `wrk-vault-notes`            |
+| `~/notes` (vault) + label `daily`            | `wrk-vault-notes__daily`     |
 
 Special characters in both the project name and session label are replaced with underscores.
 The `__` (double underscore) separates the project name from the label, so sessions for different projects never collide.
+Vault sessions use a `wrk-vault-` prefix so they never collide with a git repo of the same name.
 
 [1]: https://www.conductor.build/
 [2]: https://github.com/junegunn/fzf
