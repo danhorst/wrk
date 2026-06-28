@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-06-28
+
 ### Added
 - PKM vault sessions. Flag a non-git directory as a vault with a marker file (default `.wrk-vault`) and point `WRK_VAULT_ROOTS` at the vault or a folder of vaults; vaults appear in the picker tagged with 📓 and open a plain session (no worktree, branch, or `WRK_PORT`). Marker filename is configurable via `WRK_VAULT_MARKER`
 
@@ -133,7 +135,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.6.3...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/danhorst/wrk/compare/1.6.3...1.7.0
 [1.6.3]: https://github.com/danhorst/wrk/compare/1.6.2...1.6.3
 [1.6.2]: https://github.com/danhorst/wrk/compare/1.6.1...1.6.2
 [1.6.1]: https://github.com/danhorst/wrk/compare/1.6.0...1.6.1
