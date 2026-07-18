@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-07-18
+
+### Fixed
+- Sessions no longer carry a stale SSH agent socket after reattaching from a different SSH connection. `SSH_AUTH_SOCK` is now exported as a stable symlink (`ssh-auth-sock`, alongside `worktrees` under the wrk root) that wrk repoints to the current agent on every invocation, so new sessions and new panes in existing sessions always resolve to the live agent. Pre-existing sessions still carry their original socket path and need to be recreated once to pick this up
+
 ## [1.7.0] - 2026-06-28
 
 ### Added
@@ -135,7 +140,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/danhorst/wrk/compare/1.7.0...1.7.1
 [1.7.0]: https://github.com/danhorst/wrk/compare/1.6.3...1.7.0
 [1.6.3]: https://github.com/danhorst/wrk/compare/1.6.2...1.6.3
 [1.6.2]: https://github.com/danhorst/wrk/compare/1.6.1...1.6.2
