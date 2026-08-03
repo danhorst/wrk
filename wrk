@@ -6,6 +6,9 @@ VERSION="1.7.1"
 PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
 WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
 VAULT_MARKER="${WRK_VAULT_MARKER:-.wrk-vault}"
+# aoe validates --cmd against its agent allowlist, so a plain shell has to be
+# reached through a custom agent the user declares in aoe's config.toml.
+AOE_SHELL_TOOL="${WRK_AOE_SHELL_TOOL:-shell}"
 SSH_AUTH_SOCK_LINK="$(dirname "$WORKTREE_ROOT")/ssh-auth-sock"
 
 show_help() {
@@ -43,13 +46,32 @@ is installed, the worktree is automatically trusted so .env loads in
 the shell. Without mise, WRK_PORT is set but won't auto-load.
 
 --clean removes selected worktrees and for each one also deletes the
-local git branch (if fully merged) and kills the tmux session.
+local git branch (if fully merged) and kills the tmux session, or purges
+the aoe session record when running under aoe.
 
 Vaults (PKM workspaces — Obsidian vaults, OKF Knowledge Bundles) are
 non-git directories. Flag one by creating a marker file (default
 .wrk-vault) at its root, then point WRK_VAULT_ROOTS at the vault or at a
 folder of vaults. Vaults appear in the picker tagged with 📓; selecting
 one opens a plain session (no worktree, branch, or WRK_PORT).
+
+If Agent of Empires (aoe) is installed it owns session lifecycle: wrk still
+discovers projects, picks branches, and provisions worktrees, then hands the
+path to `aoe add`. Worktree sessions launch claude; project and vault sessions
+open a shell. Sessions are matched by path, so the naming below is unused in
+this mode.
+
+aoe only launches agents from its own allowlist, so shell sessions need a
+custom agent declared in its config.toml. wrk also exports the SSH agent
+symlink before handing off; forward it with a bare passthrough entry:
+
+  environment = ["SSH_AUTH_SOCK"]
+
+  [session]
+  custom_agents = { shell = "zsh" }
+
+Leave aoe's tmux.socket_name unset so both kinds of session share one server.
+Without aoe, wrk creates and attaches tmux sessions itself.
 
 Environment:
   WRK_PROJECT_ROOT   Root directory to scan for git repos (default: ~/git)
@@ -64,6 +86,90 @@ branch_name() { printf '%s' "$1" | tr -c 'a-zA-Z0-9._-' '-'; }
 
 # Sanitize a branch name into a tmux-safe session suffix (hyphens become underscores).
 session_label() { local s="${1//[!a-zA-Z0-9]/_}"; printf '%s' "$s"; }
+
+# --- Agent of Empires (aoe) integration ---
+# When aoe is installed it owns session lifecycle. wrk still discovers projects,
+# picks branches, and provisions worktrees, then hands the path to `aoe add`.
+# Sessions are matched by path, never by name: aoe derives its tmux names as
+# aoe_<title>_<id8> from a UUID that does not exist until the session record
+# does, so there is no name wrk could construct in advance.
+# jq is what reads `aoe list --json`; without it every lookup would come back
+# empty and wrk would create a duplicate session instead of attaching.
+has_aoe() { command -v aoe &>/dev/null && command -v jq &>/dev/null; }
+
+# `path<TAB>id<TAB>title` for every aoe session, fetched once per run.
+# `aoe list --json` prints a bare "No sessions found" line on an empty profile,
+# so a jq parse failure is indistinguishable from — and treated as — no
+# sessions.
+_AOE_SESSIONS=''
+_AOE_LOADED=false
+aoe_sessions() {
+  if ! $_AOE_LOADED; then
+    _AOE_SESSIONS=$(aoe list --json 2>/dev/null \
+      | jq -r '.[] | "\(.path)\t\(.id)\t\(.title)"' 2>/dev/null || true)
+    _AOE_LOADED=true
+  fi
+  printf '%s' "$_AOE_SESSIONS"
+}
+
+# Resolve a session id by path, optionally narrowed to one title. Path alone is
+# ambiguous whenever two sessions share a directory — a ctrl-t dev-server
+# session next to the project's default one — so callers that know which
+# session they mean must pass the title too.
+aoe_session_id() {
+  aoe_sessions | awk -F'\t' -v p="$1" -v t="${2:-}" \
+    '$1==p && (t=="" || $3==t) {print $2; exit}'
+}
+
+# Fill the cache in the caller's shell. The indicator helpers below run inside
+# command substitutions, so without this every picker row would pay for its own
+# `aoe list` in a subshell that then throws the result away. Called once per
+# entry point, which also makes it the place to warn about a missing jq.
+aoe_prime() {
+  if command -v aoe &>/dev/null && ! command -v jq &>/dev/null; then
+    echo 'wrk: aoe found but jq is missing — using plain tmux sessions' >&2
+  fi
+  if has_aoe; then aoe_sessions >/dev/null; fi
+}
+
+# Attach to an aoe session, replacing this process. `aoe session attach` refuses
+# a session whose tmux process is stopped — the state every session is in after
+# a reboot — so start it first. `aoe session start` is idempotent and will not
+# spawn a second tmux session for one that is already running.
+aoe_attach() {
+  aoe session start "$1" &>/dev/null || true
+  exec aoe session attach "$1"
+}
+
+# ◆/◇/' ' for an aoe session id, given a tmux `name<TAB>attached` blob. The
+# `_<id8>` tail is aoe's durable handle from a session record to its panes,
+# immutable across renames. A record whose tmux session is stopped is present,
+# not absent, so it still rates ◇.
+aoe_ind() {
+  local id="$1" info="$2"
+  [ -z "$id" ] && { printf ' '; return; }
+  local att
+  att=$(printf '%s\n' "$info" | awk -F'\t' -v t="_${id:0:8}" \
+    'index($1,"aoe_")==1 && substr($1,length($1)-length(t)+1)==t {print $2; exit}')
+  [ "${att:-0}" -gt 0 ] && printf '◆' || printf '◇'
+}
+
+# ◆/◇/' ' for a project: any aoe session at the project itself or in one of its
+# worktrees counts, attached winning over merely present.
+aoe_project_ind() {
+  local ppath="$1" rel="$2" info="$3" best=' ' p id ind
+  # Third field is read into `_` so `id` does not absorb the title.
+  while IFS=$'\t' read -r p id _; do
+    [ -z "$p" ] && continue
+    [ "$p" = "$ppath" ] \
+      || { [ -n "$rel" ] && [[ "$p" == "$WORKTREE_ROOT/$rel/"* ]]; } \
+      || continue
+    ind=$(aoe_ind "$id" "$info")
+    [ "$ind" = '◆' ] && { printf '◆'; return; }
+    best="$ind"
+  done <<< "$(aoe_sessions)"
+  printf '%s' "$best"
+}
 
 # Point a stable symlink at the current shell's SSH agent socket. Sessions are
 # given SSH_AUTH_SOCK_LINK (not the raw socket path) as their SSH_AUTH_SOCK, so
@@ -137,15 +243,16 @@ resolve_worktree() {
 }
 
 pick_branch() {
-  local project_path="$1"
+  local project_path="$1" project_rel="$2"
   local base="wrk-$(session_label "$(basename "$project_path")")"
 
   git -C "$project_path" fetch --quiet --prune origin 2>/dev/null || true
 
-  local sess_info attached_sess all_sess
-  sess_info=$(tmux list-sessions \
-    -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null \
-    | grep -E "^${base}__" || true)
+  local full_info sess_info attached_sess all_sess
+  aoe_prime
+  full_info=$(tmux list-sessions \
+    -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null || true)
+  sess_info=$(printf '%s\n' "$full_info" | grep -E "^${base}__" || true)
   attached_sess=$(printf '%s\n' "$sess_info" | awk -F'\t' '$2>0{print $1}')
   all_sess=$(printf '%s\n' "$sess_info" | cut -f1)
 
@@ -163,6 +270,11 @@ pick_branch() {
   while IFS= read -r b; do
     if [ "$b" = '[new]' ]; then
       lines+=("$b"$'\t'"  $b")
+    elif has_aoe; then
+      ind=$(aoe_ind \
+        "$(aoe_session_id "$WORKTREE_ROOT/$project_rel/$(branch_name "$b")")" \
+        "$full_info")
+      lines+=("$b"$'\t'"$ind $b")
     else
       sname="${base}__$(session_label "$b")"
       if printf '%s\n' "$attached_sess" | grep -qFx "$sname"; then
@@ -192,6 +304,7 @@ pick_branch() {
 
 cmd_list() {
   local found=false sess_info attached ind
+  aoe_prime
   sess_info=$(tmux list-sessions \
     -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null || true)
   printf '%-42s %-30s %-8s %s\n' 'WORKTREE' 'BRANCH' 'PORT' 'STATUS'
@@ -205,11 +318,15 @@ cmd_list() {
     branch=$(git -C "$wt" branch --show-current 2>/dev/null) || branch='(detached)'
     local port
     port=$(grep '^WRK_PORT=' "$wt/.env" 2>/dev/null | cut -d= -f2 || echo '—')
-    local sname="wrk-$(session_label "$(basename "$org_project")")__$(session_label "$label")"
-    attached=$(printf '%s\n' "$sess_info" | awk -F'\t' -v s="$sname" '$1==s{print $2; exit}')
-    if [ -z "$attached" ]; then ind=' '
-    elif [ "$attached" -gt 0 ]; then ind='◆'
-    else ind='◇'
+    if has_aoe; then
+      ind=$(aoe_ind "$(aoe_session_id "$wt")" "$sess_info")
+    else
+      local sname="wrk-$(session_label "$(basename "$org_project")")__$(session_label "$label")"
+      attached=$(printf '%s\n' "$sess_info" | awk -F'\t' -v s="$sname" '$1==s{print $2; exit}')
+      if [ -z "$attached" ]; then ind=' '
+      elif [ "$attached" -gt 0 ]; then ind='◆'
+      else ind='◇'
+      fi
     fi
     printf '%-42s %-30s %-8s %s\n' "$rel" "$branch" "$port" "$ind"
   done
@@ -261,19 +378,24 @@ cmd_clean() {
 
   local to_remove=()
   local clean_sess_info
+  aoe_prime
   clean_sess_info=$(tmux list-sessions \
     -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null || true)
 
   _clean_lines() {
     local rel org_project label sname att ind
     for rel in "$@"; do
-      org_project="${rel%/*}"
-      label="${rel##*/}"
-      sname="wrk-$(session_label "$(basename "$org_project")")__$(session_label "$label")"
-      att=$(printf '%s\n' "$clean_sess_info" | awk -F'\t' -v s="$sname" '$1==s{print $2; exit}')
-      if [ -z "$att" ]; then ind=' '
-      elif [ "$att" -gt 0 ]; then ind='◆'
-      else ind='◇'
+      if has_aoe; then
+        ind=$(aoe_ind "$(aoe_session_id "$WORKTREE_ROOT/$rel")" "$clean_sess_info")
+      else
+        org_project="${rel%/*}"
+        label="${rel##*/}"
+        sname="wrk-$(session_label "$(basename "$org_project")")__$(session_label "$label")"
+        att=$(printf '%s\n' "$clean_sess_info" | awk -F'\t' -v s="$sname" '$1==s{print $2; exit}')
+        if [ -z "$att" ]; then ind=' '
+        elif [ "$att" -gt 0 ]; then ind='◆'
+        else ind='◇'
+        fi
       fi
       printf '%s\t%s %s\n' "$rel" "$ind" "$rel"
     done
@@ -313,6 +435,21 @@ cmd_clean() {
     local branch
     branch=$(git -C "$wt" branch --show-current 2>/dev/null) || branch=''
 
+    # Drop the aoe record first so its on_destroy hooks still see a live
+    # worktree. --purge rather than the default trash: the worktree and branch
+    # are about to go, so there is nothing left to restore the record to.
+    # No --delete-worktree — wrk's worktrees are managed_by_aoe:false and the
+    # removal below is wrk's to do.
+    if has_aoe; then
+      local aid
+      # Every session rooted in this worktree, not just the first: a ctrl-t
+      # session can sit alongside the branch session in the same directory, and
+      # the directory is about to go.
+      while IFS= read -r aid; do
+        [ -n "$aid" ] && { aoe remove "$aid" --purge &>/dev/null || true; }
+      done < <(aoe_sessions | awk -F'\t' -v p="$wt" '$1==p{print $2}')
+    fi
+
     git -C "$source" worktree remove "$wt" 2>/dev/null \
       || git -C "$source" worktree remove --force "$wt"
 
@@ -321,8 +458,10 @@ cmd_clean() {
         || echo "Note: branch '$branch' not deleted (may have unmerged commits)"
     fi
 
-    local sname="wrk-$(session_label "$(basename "$org_project")")__$(session_label "$label")"
-    tmux kill-session -t "$sname" 2>/dev/null || true
+    if ! has_aoe; then
+      local sname="wrk-$(session_label "$(basename "$org_project")")__$(session_label "$label")"
+      tmux kill-session -t "$sname" 2>/dev/null || true
+    fi
 
     echo "Removed: $rel"
   done
@@ -366,12 +505,15 @@ fi
 [ "${#PROJECTS[@]}" -eq 0 ] && [ "${#VAULTS[@]}" -eq 0 ] && exit 0
 
 # ◆ = session attached, ◇ = session detached, ' ' = no session
+aoe_prime
+_full_sess_info=$(tmux list-sessions \
+  -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null || true)
 _sess_all=() _sess_attached=()
 while IFS=$'\t' read -r _sn _sa; do
   [[ "$_sn" == wrk-* ]] || continue
   _sess_all+=("$_sn")
   [[ "${_sa:-0}" -gt 0 ]] && _sess_attached+=("$_sn")
-done < <(tmux list-sessions -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null || true)
+done <<< "$_full_sess_info"
 
 _sess_match() {
   local base="$1" s; shift
@@ -395,12 +537,20 @@ _session_ind() {
 _project_lines=()
 for _p in "${PROJECTS[@]+"${PROJECTS[@]}"}"; do
   _rel="${_p#"$PROJECT_ROOT"/}"
-  _ind=$(_session_ind "wrk-$(session_label "${_p##*/}")")
+  if has_aoe; then
+    _ind=$(aoe_project_ind "$_p" "$_rel" "$_full_sess_info")
+  else
+    _ind=$(_session_ind "wrk-$(session_label "${_p##*/}")")
+  fi
   _project_lines+=("git"$'\t'"$_p"$'\t'"$_rel"$'\t'"$_ind $_rel")
 done
 for _v in "${VAULTS[@]+"${VAULTS[@]}"}"; do
   _name="${_v##*/}"
-  _ind=$(_session_ind "wrk-vault-$(session_label "$_name")")
+  if has_aoe; then
+    _ind=$(aoe_project_ind "$_v" '' "$_full_sess_info")
+  else
+    _ind=$(_session_ind "wrk-vault-$(session_label "$_name")")
+  fi
   _project_lines+=("vault"$'\t'"$_v"$'\t'$'\t'"$_ind 📓 $_name")
 done
 
@@ -415,6 +565,24 @@ _fzf_result=$(printf '%s\n' "${_project_lines[@]}" \
 
 _fzf_key=$(printf '%s' "$_fzf_result" | head -1)
 _fzf_line=$(printf '%s' "$_fzf_result" | tail -1)
+
+if [ "$_fzf_key" = 'ctrl-x' ] && has_aoe; then
+  _raw=$(aoe_sessions)
+  if [ -z "$_raw" ]; then
+    tmux display-message "No aoe sessions"
+    exec "$0" "$@"
+  fi
+  _sess=$(while IFS=$'\t' read -r _p _id _t; do
+      [ -z "$_id" ] && continue
+      printf '%s\t%s %s\t%s\n' "$_id" "$(aoe_ind "$_id" "$_full_sess_info")" "$_t" "$_p"
+    done <<< "$_raw" \
+    | fzf --delimiter=$'\t' --with-nth=2 \
+          --preview 'tree -C -L 1 {3}' \
+          --prompt='Session: ' \
+          --header='enter: attach') || true
+  [ -z "$_sess" ] && exit 0
+  aoe_attach "$(printf '%s' "$_sess" | cut -f1)"
+fi
 
 if [ "$_fzf_key" = 'ctrl-x' ]; then
   _raw=$(tmux list-sessions \
@@ -458,24 +626,82 @@ fi
 
 # Determine session name and working directory
 SESSION_DIR="$PROJECT_PATH"
+SESSION="$BASE"
+
+# aoe identity, carried alongside SESSION: <org> becomes the group, <repo> or
+# <repo>-<label> the title, and AOE_BRANCH is set only for worktree sessions.
+REPO="$(basename "$PROJECT_PATH")"
+if [ "$TYPE" = 'vault' ]; then GROUP='vaults'; else GROUP="${PROJECT_REL%/*}"; fi
+TITLE="$REPO"
+AOE_BRANCH=''
 
 if [ -n "${2:-}" ] && [ "$TYPE" = 'vault' ]; then
   SESSION="${BASE}__$(session_label "$2")"
+  TITLE="$REPO-$(branch_name "$2")"
 elif [ -n "${2:-}" ]; then
   BRANCH="$(branch_name "$2")"
   SESSION="${BASE}__$(session_label "$BRANCH")"
   SESSION_DIR="$(resolve_worktree "$PROJECT_PATH" "$PROJECT_REL" "$BRANCH")"
+  TITLE="$REPO-$BRANCH"
+  AOE_BRANCH="$BRANCH"
 elif [ "$_fzf_key" = 'ctrl-o' ] && [ "$TYPE" != 'vault' ]; then
-  raw_label=$(pick_branch "$PROJECT_PATH") || exit 0
+  raw_label=$(pick_branch "$PROJECT_PATH" "$PROJECT_REL") || exit 0
   [ -z "$raw_label" ] && exit 0
   BRANCH="$(branch_name "$raw_label")"
   SESSION="${BASE}__$(session_label "$BRANCH")"
   SESSION_DIR="$(resolve_worktree "$PROJECT_PATH" "$PROJECT_REL" "$BRANCH")"
+  TITLE="$REPO-$BRANCH"
+  AOE_BRANCH="$BRANCH"
 elif [ "$_fzf_key" = 'ctrl-t' ]; then
   printf 'Session name: ' >&2
   read -r raw_label
   [ -z "$raw_label" ] && exit 0
   SESSION="${BASE}__$(session_label "$raw_label")"
+  TITLE="$REPO-$(branch_name "$raw_label")"
+elif has_aoe; then
+  # Sub-picker over this project's aoe sessions — the project dir itself plus
+  # anything under its worktree root. Picking one attaches and exits; the
+  # sentinels fall through to creation below. With no existing sessions the
+  # defaults set above open the project directly.
+  _aoe_lines=() _aoe_titles=()
+  while IFS=$'\t' read -r _p _id _t; do
+    [ -z "$_id" ] && continue
+    [ "$_p" = "$PROJECT_PATH" ] \
+      || { [ -n "$PROJECT_REL" ] && [[ "$_p" == "$WORKTREE_ROOT/$PROJECT_REL/"* ]]; } \
+      || continue
+    _aoe_lines+=("$_id"$'\t'"$(aoe_ind "$_id" "$_full_sess_info") $_t")
+    _aoe_titles+=("$_t")
+  done <<< "$(aoe_sessions)"
+
+  # Mirrors the fallback below: a lone default session opens straight through
+  # rather than through a one-item picker.
+  if [ "${#_aoe_lines[@]}" -gt 1 ] || \
+     { [ "${#_aoe_lines[@]}" -eq 1 ] && [ "${_aoe_titles[0]}" != "$REPO" ]; }; then
+    _aoe_lines+=('[new session]'$'\t''  [new session]')
+    [ "$TYPE" != 'vault' ] && _aoe_lines+=('[new worktree]'$'\t''  [new worktree]')
+
+    _pick=$(printf '%s\n' "${_aoe_lines[@]}" \
+      | fzf --delimiter=$'\t' --with-nth=2 --preview '' --prompt='Session? ') || true
+    [ -z "$_pick" ] && exit 0
+    _pick=$(printf '%s' "$_pick" | cut -f1)
+    case "$_pick" in
+      '[new session]')
+        printf 'Session name: '
+        read -r raw_label
+        [ -z "$raw_label" ] && exit 0
+        TITLE="$REPO-$(branch_name "$raw_label")"
+        ;;
+      '[new worktree]')
+        printf 'Session name: '
+        read -r raw_label
+        [ -z "$raw_label" ] && exit 0
+        AOE_BRANCH="$(branch_name "$raw_label")"
+        SESSION_DIR="$(resolve_worktree "$PROJECT_PATH" "$PROJECT_REL" "$AOE_BRANCH")"
+        TITLE="$REPO-$AOE_BRANCH"
+        ;;
+      *) aoe_attach "$_pick" ;;
+    esac
+  fi
 else
   # Find all existing sessions for this project (default + labeled)
   _sess_info=$(tmux list-sessions \
@@ -530,6 +756,28 @@ fi
 if [ "$TYPE" != 'vault' ] && command -v mise &>/dev/null \
    && [ "$SESSION_DIR" = "$PROJECT_PATH" ]; then
   mise trust "$SESSION_DIR" &>/dev/null
+fi
+
+# aoe owns session lifecycle when it is installed. It derives its own tmux name,
+# sets allow-passthrough, and already uses switch-client when inside tmux, so
+# none of the fallback plumbing below applies.
+if has_aoe; then
+  # Export the agent symlink so aoe's `environment = ["SSH_AUTH_SOCK"]`
+  # passthrough forwards it into the pane. Passing it by name rather than as a
+  # literal path keeps aoe's config free of any machine-specific value.
+  [ -L "$SSH_AUTH_SOCK_LINK" ] && export SSH_AUTH_SOCK="$SSH_AUTH_SOCK_LINK"
+  _aid=$(aoe_session_id "$SESSION_DIR" "$TITLE")
+  if [ -n "$_aid" ]; then
+    aoe_attach "$_aid"
+  elif [ -n "$AOE_BRANCH" ]; then
+    # No -b: resolve_worktree already created the worktree, so aoe adopts it as
+    # managed_by_aoe:false and will never relocate or delete it.
+    exec aoe add "$PROJECT_PATH" -w "$AOE_BRANCH" -t "$TITLE" -g "$GROUP" \
+      --tool claude --trust-hooks -l
+  else
+    exec aoe add "$SESSION_DIR" -t "$TITLE" -g "$GROUP" --tool "$AOE_SHELL_TOOL" \
+      --trust-hooks -l
+  fi
 fi
 
 # Attach or create — use switch-client when already inside tmux.

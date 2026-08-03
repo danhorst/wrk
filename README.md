@@ -10,9 +10,13 @@ Think of it as stripped-down version of [Conductor][1] that you can use in your 
 - [fzf][2]
 - [tmux][3]
 - [tree][4]
+- [jq][8]
 - OPTIONAL: [mise][5]
+- OPTIONAL: [Agent of Empires][9]
 
 If `mise` is present, `wrk` runs `mise trust` on each new [worktree][6] so that `.env` variables (including `WRK_PORT`) load automatically via mise's env integration.
+
+If `aoe` is present, it takes over session lifecycle — see [Agent of Empires](#agent-of-empires).
 
 ## Installation
 
@@ -118,7 +122,7 @@ CONDUCTOR_PORT=$WRK_PORT
 For each removed worktree, `wrk` also:
 
 - Deletes the local git branch (using `git branch -d`; skipped with a warning if the branch has unmerged commits)
-- Kills the associated tmux session if one is running
+- Kills the associated tmux session if one is running, or purges the `aoe` session record when running under `aoe`
 
 ### PKM vault sessions
 
@@ -145,6 +149,47 @@ Selecting one opens (or resumes) a plain session rooted at the vault — there i
 
 The marker filename defaults to `.wrk-vault` and can be changed with `WRK_VAULT_MARKER`.
 
+### Agent of Empires
+
+[Agent of Empires][9] (`aoe`) is a TUI and web dashboard for AI coding agents, also built on tmux.
+When `aoe` is on your `$PATH`, `wrk` hands session lifecycle to it: `wrk` still discovers projects, picks branches, and provisions worktrees, then calls `aoe add` instead of `tmux new-session`.
+Sessions created this way show up in the `aoe` TUI, its web dashboard, and its status polling.
+
+Worktree sessions launch `claude`.
+Plain project sessions and vault sessions open a shell, as they always have.
+
+The `<org>` directory becomes the `aoe` group and `<repo>` or `<repo>-<branch>` becomes the session title, so `~/git/acme/webapp` on branch `fix-login` lands in group `acme` titled `webapp-fix-login`.
+
+`wrk` keeps ownership of the worktrees it creates.
+They stay at `$WRK_WORKTREE_ROOT/<org>/<repo>/<branch>`, `aoe` adopts them as unmanaged (`managed_by_aoe: false`), and it will never move or delete one.
+Do not set `aoe`'s `worktree.path_template` — its templates have no `<org>` component, so letting `aoe` place worktrees would make `acme/webapp` and `other/webapp` collide.
+
+Sessions are matched by path rather than by name, so the [session naming](#session-naming) scheme below does not apply under `aoe`.
+
+> [!NOTE]
+> `aoe list` includes trashed sessions, so opening a project whose session you trashed in the `aoe` TUI resurrects it rather than creating a new one.
+> Use `aoe rm --purge` (or empty the trash) to be rid of one for good.
+> `wrk --clean` already purges, so it never leaves trashed records behind.
+
+Two entries are required in `~/.config/agent-of-empires/config.toml` (or `~/.agent-of-empires/config.toml` if you don't use XDG):
+
+```toml
+environment = ["SSH_AUTH_SOCK"]
+
+[session]
+custom_agents = { shell = "zsh" }
+```
+
+`aoe` refuses to launch anything outside its agent allowlist, so shell sessions run through a custom agent.
+Name it something else and point `WRK_AOE_SHELL_TOOL` at that name.
+
+The `environment` entry forwards the SSH agent symlink, so sessions keep working when you reattach over a different SSH connection.
+`wrk` exports `SSH_AUTH_SOCK` pointing at the symlink before handing off, so a bare passthrough is enough — no absolute path, which matters because `aoe` does not expand `~`.
+
+> [!NOTE]
+> Leave `aoe`'s `tmux.socket_name` unset.
+> Setting it moves `aoe`'s sessions to a private tmux server, where `wrk` can no longer see them or switch between them and its own.
+
 ### Inside an existing tmux session
 
 `wrk` works the same way from inside tmux.
@@ -158,11 +203,15 @@ In an existing tmux session, it uses `switch-client` instead of `attach`, so you
 | `WRK_WORKTREE_ROOT` | `~/.wrk/worktrees` | Root directory for worktrees     |
 | `WRK_VAULT_ROOTS`   | _(unset)_          | Colon-separated vaults or folders of vaults |
 | `WRK_VAULT_MARKER`  | `.wrk-vault`       | Filename that flags a vault root |
+| `WRK_AOE_SHELL_TOOL` | `shell`           | Name of the `aoe` custom agent used for shell sessions |
 
 Repos are discovered at depth two: `$WRK_PROJECT_ROOT/<org>/<repo>/.git`.
 Vaults are discovered from `WRK_VAULT_ROOTS`: each entry is either a vault (it contains the marker file) or a folder scanned one level deep for vaults.
 
 ## Session naming
+
+This applies when `aoe` is not installed.
+Under `aoe`, sessions are identified by path and named by `aoe` — see [Agent of Empires](#agent-of-empires).
 
 | Project path                                 | Session                      |
 | -------------------------------------------- | ---------------------------- |
@@ -183,3 +232,5 @@ Vault sessions use a `wrk-vault-` prefix so they never collide with a git repo o
 [5]: https://mise.jdx.dev
 [6]: https://git-scm.com/docs/git-worktree
 [7]: https://brew.sh
+[8]: https://jqlang.org
+[9]: https://github.com/agent-of-empires/agent-of-empires

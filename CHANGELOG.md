@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Interoperability with [Agent of Empires](https://github.com/agent-of-empires/agent-of-empires) (`aoe`). When `aoe` is on `$PATH` it owns session lifecycle: wrk still discovers projects, picks branches, and provisions worktrees, then calls `aoe add` instead of `tmux new-session`, so sessions appear in the aoe TUI, web dashboard, and status polling. Worktree sessions launch `claude`; project and vault sessions still open a shell. The `<org>` directory becomes the aoe group and `<repo>`/`<repo>-<branch>` the session title
+- `jq` is now a dependency, used to read `aoe list --json`
+- `WRK_AOE_SHELL_TOOL` names the `aoe` custom agent used for shell sessions (default `shell`). `aoe` validates `--cmd` against its own agent allowlist and rejects a bare shell, so non-worktree sessions run through a custom agent declared in its config; `wrk` exports `SSH_AUTH_SOCK` before handing off so a bare `environment = ["SSH_AUTH_SOCK"]` passthrough forwards the agent symlink without hardcoding a path
+
+### Changed
+- **BREAKING** — under `aoe`, sessions are identified by path rather than by name, so the `wrk-<repo>__<label>` scheme does not apply and existing `wrk-*` sessions are not adopted. Worktrees created by earlier versions stay on disk and keep working, but have no aoe session record; kill and recreate the sessions once after upgrading. Without `aoe` installed, behavior is unchanged
+- wrk keeps ownership of the worktrees it creates. They stay at `$WRK_WORKTREE_ROOT/<org>/<repo>/<branch>` and aoe adopts them as `managed_by_aoe: false`, so aoe never moves or deletes one — which also preserves the `<org>` path component that aoe's own `worktree.path_template` has no token for
+- `--clean` purges the aoe session record before removing a worktree, so its `on_destroy` hooks still see a live checkout and no orphan row is left behind
+
 ### Fixed
 - `--clean` now classifies merged worktrees correctly. `git branch --merged` marks a branch that is checked out in another worktree with `+`, which every wrk worktree branch is by definition, so the whitespace-only prefix the match expected never lined up and nothing was ever pre-selected for removal. Branches are now listed with `--format='%(refname:short)'` and matched exactly, which also stops a `.` in a branch name from acting as a wildcard
 
