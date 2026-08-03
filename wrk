@@ -132,12 +132,54 @@ aoe_prime() {
   if has_aoe; then aoe_sessions >/dev/null; fi
 }
 
+# tmux session name for an aoe id. aoe names its sessions aoe_<title>_<id8> and
+# renames them freely, so the `_<id8>` tail is the only stable handle — the same
+# one aoe_ind matches on. `aoe session show --json` does not carry the name.
+aoe_tmux_name() {
+  local t="_${1:0:8}"
+  tmux list-sessions -F '#{session_name}' 2>/dev/null \
+    | awk -v t="$t" \
+      'index($0,"aoe_")==1 && substr($0,length($0)-length(t)+1)==t {print; exit}'
+}
+
+# Options aoe leaves to us, re-applied on every attach because aoe rebuilds the
+# whole new-session chain each time it restarts a stopped session.
+#
+# allow-passthrough: aoe skips it for anyone who has a tmux.conf, on the theory
+# that they manage it themselves (should_apply_tmux_clipboard). Claude Code
+# needs it, so wrk sets it here exactly as it does for its own sessions below.
+#
+# remain-on-exit: aoe sets `on`, which tombstones a clean exit as readily as a
+# crash. An agent wants `failed` — gone when you quit it, still there to read
+# when it died. A shell wants `off`: bare `exit` returns the last command's
+# status, so `failed` would tombstone at random. Keyed off the tool rather than
+# AOE_BRANCH because the pickers reach this with no branch in scope.
+aoe_tune() {
+  local name tool
+  name=$(aoe_tmux_name "$1")
+  if [ -z "$name" ]; then
+    # Only reachable if aoe stops naming its sessions aoe_<title>_<id8>. Silence
+    # here would look exactly like the bugs these options fix.
+    echo "wrk: no tmux session for aoe id '$1' — skipping option setup" >&2
+    return 0
+  fi
+  tmux set-option -w -t "${name}:" allow-passthrough on 2>/dev/null || true
+  tool=$(aoe session show "$1" --json 2>/dev/null | jq -r '.tool // ""' || true)
+  if [ "$tool" = "$AOE_SHELL_TOOL" ]; then
+    tmux set-option -p -t "${name}:" remain-on-exit off 2>/dev/null || true
+  else
+    tmux set-option -p -t "${name}:" remain-on-exit failed 2>/dev/null || true
+  fi
+  return 0
+}
+
 # Attach to an aoe session, replacing this process. `aoe session attach` refuses
 # a session whose tmux process is stopped — the state every session is in after
 # a reboot — so start it first. `aoe session start` is idempotent and will not
 # spawn a second tmux session for one that is already running.
 aoe_attach() {
   aoe session start "$1" &>/dev/null || true
+  aoe_tune "$1"
   exec aoe session attach "$1"
 }
 
@@ -758,26 +800,32 @@ if [ "$TYPE" != 'vault' ] && command -v mise &>/dev/null \
   mise trust "$SESSION_DIR" &>/dev/null
 fi
 
-# aoe owns session lifecycle when it is installed. It derives its own tmux name,
-# sets allow-passthrough, and already uses switch-client when inside tmux, so
-# none of the fallback plumbing below applies.
+# aoe owns session lifecycle when it is installed. It derives its own tmux name
+# and already uses switch-client when inside tmux, so none of the fallback
+# plumbing below applies.
 if has_aoe; then
   # Export the agent symlink so aoe's `environment = ["SSH_AUTH_SOCK"]`
   # passthrough forwards it into the pane. Passing it by name rather than as a
   # literal path keeps aoe's config free of any machine-specific value.
   [ -L "$SSH_AUTH_SOCK_LINK" ] && export SSH_AUTH_SOCK="$SSH_AUTH_SOCK_LINK"
   _aid=$(aoe_session_id "$SESSION_DIR" "$TITLE")
-  if [ -n "$_aid" ]; then
-    aoe_attach "$_aid"
-  elif [ -n "$AOE_BRANCH" ]; then
-    # No -b: resolve_worktree already created the worktree, so aoe adopts it as
-    # managed_by_aoe:false and will never relocate or delete it.
-    exec aoe add "$PROJECT_PATH" -w "$AOE_BRANCH" -t "$TITLE" -g "$GROUP" \
-      --tool claude --trust-hooks -l
-  else
-    exec aoe add "$SESSION_DIR" -t "$TITLE" -g "$GROUP" --tool "$AOE_SHELL_TOOL" \
-      --trust-hooks -l
+  if [ -z "$_aid" ]; then
+    # No -l: create only, so wrk keeps control long enough to set the tmux
+    # options aoe leaves alone. aoe_attach does the launching.
+    if [ -n "$AOE_BRANCH" ]; then
+      # No -b: resolve_worktree already created the worktree, so aoe adopts it
+      # as managed_by_aoe:false and will never relocate or delete it.
+      aoe add "$PROJECT_PATH" -w "$AOE_BRANCH" -t "$TITLE" -g "$GROUP" \
+        --tool claude --trust-hooks >/dev/null
+    else
+      aoe add "$SESSION_DIR" -t "$TITLE" -g "$GROUP" --tool "$AOE_SHELL_TOOL" \
+        --trust-hooks >/dev/null
+    fi
+    _AOE_LOADED=false
+    _aid=$(aoe_session_id "$SESSION_DIR" "$TITLE")
+    [ -z "$_aid" ] && { echo "wrk: aoe created no session for '$TITLE'" >&2; exit 1; }
   fi
+  aoe_attach "$_aid"
 fi
 
 # Attach or create — use switch-client when already inside tmux.
