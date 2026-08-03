@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `--clean` now classifies merged worktrees correctly. `git branch --merged` marks a branch that is checked out in another worktree with `+`, which every wrk worktree branch is by definition, so the whitespace-only prefix the match expected never lined up and nothing was ever pre-selected for removal. Branches are now listed with `--format='%(refname:short)'` and matched exactly, which also stops a `.` in a branch name from acting as a wildcard
+
 ## [1.7.1] - 2026-07-18
 
 ### Fixed

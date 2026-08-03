@@ -242,8 +242,12 @@ cmd_clean() {
     base=$(git -C "$source" symbolic-ref --short HEAD 2>/dev/null) || base='main'
     git -C "$source" fetch --quiet origin "$base" 2>/dev/null || true
 
-    if git -C "$source" branch --merged "origin/$base" 2>/dev/null \
-        | grep -qE "^[[:space:]]*${branch}$"; then
+    # --format drops the two-column marker prefix. Plain `git branch` marks a
+    # branch checked out in another worktree with `+`, which every wrk worktree
+    # branch is by definition, so a whitespace-only prefix never matched and
+    # nothing was ever classified as merged.
+    if git -C "$source" branch --merged "origin/$base" --format='%(refname:short)' 2>/dev/null \
+        | grep -qFx "$branch"; then
       merged+=("$rel")
     else
       unmerged+=("$rel")
