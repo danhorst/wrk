@@ -59,6 +59,26 @@ wrk webapp
 
 Opens the same fuzzy search but pre-filters the list to repos matching `webapp`.
 
+### Session indicators
+
+Every picker, and `--list`, marks each row with the state of its session.
+
+| Indicator | Meaning                                |
+| --------- | -------------------------------------- |
+| `✖`       | Agent hit an error                     |
+| `●`       | Agent is waiting on you                |
+| `◆`       | Session is currently attached          |
+| `◐`       | Agent is working                       |
+| `◇`       | Session exists but is idle or stopped  |
+| (none)    | No session                             |
+
+A project row shows the most urgent indicator among its own sessions and those of its worktrees, in the order listed above.
+A branch waiting on input therefore outranks an attached session elsewhere in the same project, which is what makes the project picker usable as a queue.
+
+`✖`, `●` and `◐` require [Agent of Empires](#agent-of-empires).
+They are read from the status file `aoe`'s hooks write, which the agent itself updates — so they stay current whether or not the `aoe` TUI or its web dashboard is running.
+Without `aoe`, rows are only ever `◆`, `◇`, or blank.
+
 ### Multiple sessions per project
 
 ```sh
@@ -165,11 +185,9 @@ They stay at `$WRK_WORKTREE_ROOT/<org>/<repo>/<branch>`, `aoe` adopts them as un
 Do not set `aoe`'s `worktree.path_template` — its templates have no `<org>` component, so letting `aoe` place worktrees would make `acme/webapp` and `other/webapp` collide.
 
 Sessions are matched by path rather than by name, so the [session naming](#session-naming) scheme below does not apply under `aoe`.
+A worktree session is tied to its project through `aoe`'s own record of the repo it was cut from, not by where the directory sits, so the two tools can disagree about layout without the grouping breaking.
 
-> [!NOTE]
-> `aoe list` includes trashed sessions, so opening a project whose session you trashed in the `aoe` TUI resurrects it rather than creating a new one.
-> Use `aoe rm --purge` (or empty the trash) to be rid of one for good.
-> `wrk --clean` already purges, so it never leaves trashed records behind.
+Sessions you trashed in the `aoe` TUI are excluded, so opening the project creates a fresh session rather than resurrecting the discarded one.
 
 Two entries are required in `~/.config/agent-of-empires/config.toml` (or `~/.agent-of-empires/config.toml` if you don't use XDG):
 
