@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Point `wrk` at this working tree instead of the Homebrew build, so an
+# unreleased version can be exercised in place. The link is to the file, not a
+# copy, so edits take effect immediately — which also means a `git checkout`
+# here changes `wrk` system-wide until this is switched back off.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TARGET="$REPO_ROOT/wrk"
+SHADOW_DIR="${WRK_SHADOW_DIR:-$HOME/.local/bin}"
+SHADOW="$SHADOW_DIR/wrk"
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [on|off|status]
+
+  on      Shadow the Homebrew build with this working tree
+  off     Restore the Homebrew build
+  status  Report which build \`wrk\` resolves to
+
+With no argument, toggles between on and off.
+
+WRK_SHADOW_DIR overrides where the symlink is placed (default ~/.local/bin).
+EOF
+  exit 1
+}
+
+# 1-based position of a directory in PATH; empty when absent. The trailing
+# `|| true` matters: under `set -o pipefail` a non-matching grep would otherwise
+# take the whole script down at the assignment, before the caller can report it.
+path_index() {
+  printf '%s' "$PATH" | tr ':' '\n' | grep -nxF "$1" | head -1 | cut -d: -f1 || true
+}
+
+brew_bin() { command -v brew &>/dev/null && printf '%s/bin' "$(brew --prefix)"; }
+
+# Homebrew knows the formula, whether or not the keg is currently linked.
+brew_has_wrk() { command -v brew &>/dev/null && brew list --versions wrk &>/dev/null; }
+
+shadow_active() { [ -L "$SHADOW" ] && [ "$(readlink "$SHADOW")" = "$TARGET" ]; }
+
+status() {
+  local resolved bin
+  resolved="$(command -v wrk 2>/dev/null || true)"
+  if [ -z "$resolved" ]; then
+    echo "wrk: not on PATH"
+  else
+    echo "wrk -> $resolved ($("$resolved" --version 2>/dev/null || echo '?'))"
+  fi
+  if $shadow_active_flag; then
+    echo "shadow: on  ($SHADOW -> $TARGET)"
+  else
+    echo "shadow: off"
+  fi
+  if brew_has_wrk; then
+    local bin
+    bin="$(brew_bin)"
+    if [ -e "$bin/wrk" ]; then
+      echo "brew:   linked ($(brew list --versions wrk))"
+    else
+      echo "brew:   unlinked, keg present ($(brew list --versions wrk))"
+    fi
+  else
+    echo "brew:   wrk not installed"
+  fi
+}
+
+turn_on() {
+  [ -x "$TARGET" ] || { echo "Error: $TARGET is not executable"; exit 1; }
+
+  local si bi bin resolved
+  si="$(path_index "$SHADOW_DIR")"
+  if [ -z "$si" ]; then
+    echo "Error: $SHADOW_DIR is not on PATH — the symlink would never be found."
+    echo "       Add it to PATH, or set WRK_SHADOW_DIR to a directory that is."
+    exit 1
+  fi
+
+  # Unlink the keg only when Homebrew's bin would win on PATH order. On a
+  # machine where the shadow dir already comes first, leave Homebrew alone.
+  bi=""
+  bin="$(brew_bin || true)"
+  if [ -n "$bin" ]; then bi="$(path_index "$bin")"; fi
+  if brew_has_wrk && [ -n "$bi" ] && [ "$bi" -lt "$si" ] && [ -e "$bin/wrk" ]; then
+    echo "Unlinking Homebrew keg (its bin precedes $SHADOW_DIR on PATH)..."
+    brew unlink wrk >/dev/null
+  fi
+
+  if [ -e "$SHADOW" ] || [ -L "$SHADOW" ]; then
+    shadow_active || {
+      echo "Error: $SHADOW exists and is not this repo's symlink — refusing to replace it."
+      exit 1
+    }
+  else
+    mkdir -p "$SHADOW_DIR"
+    ln -s "$TARGET" "$SHADOW"
+  fi
+
+  # PATH order can still defeat the symlink if something else provides wrk.
+  resolved="$(command -v wrk 2>/dev/null || true)"
+  if [ "$resolved" != "$SHADOW" ]; then
+    echo "Error: wrk still resolves to ${resolved:-nothing}, not $SHADOW."
+    echo "       Something earlier on PATH provides it; run '$(basename "$0") off' to undo."
+    exit 1
+  fi
+
+  echo "Shadow on — wrk $("$SHADOW" --version | awk '{print $2}') from $REPO_ROOT"
+  echo "Run 'hash -r' (bash) or 'rehash' (zsh) in shells that already ran wrk."
+}
+
+turn_off() {
+  if shadow_active; then
+    rm "$SHADOW"
+  elif [ -e "$SHADOW" ] || [ -L "$SHADOW" ]; then
+    echo "Note: $SHADOW is not this repo's symlink — leaving it alone."
+  fi
+
+  local bin resolved
+  if brew_has_wrk; then
+    bin="$(brew_bin)"
+    [ -e "$bin/wrk" ] || { echo "Relinking Homebrew keg..."; brew link wrk >/dev/null; }
+  fi
+
+  resolved="$(command -v wrk 2>/dev/null || true)"
+  echo "Shadow off — wrk -> ${resolved:-not on PATH}"
+  echo "Run 'hash -r' (bash) or 'rehash' (zsh) in shells that already ran wrk."
+}
+
+shadow_active_flag=false
+shadow_active && shadow_active_flag=true
+
+case "${1:-toggle}" in
+  on)     turn_on ;;
+  off)    turn_off ;;
+  status) status ;;
+  toggle) if $shadow_active_flag; then turn_off; else turn_on; fi ;;
+  *)      usage ;;
+esac
