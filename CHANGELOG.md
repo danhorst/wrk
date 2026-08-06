@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `ctrl-d` in either session picker terminates the highlighted session after a confirmation prompt. Both pickers now loop rather than exiting, so the list re-primes after each kill and several sessions can be cleared in one pass. Under `aoe` this is a plain `aoe remove`: the record goes to the trash and `aoe session restore` brings it back, while the worktree and branch are left for `--clean`. Without `aoe`, the tmux session is killed outright. Until now the only teardown path was `--clean`, which could not reach a session whose worktree you wanted to keep
+
+### Fixed
+- `wrk` no longer prints `awk: newline in string` on every invocation when aoe's trash holds two or more sessions. The trashed ids were passed to awk through `-v` one per line, and the awk macOS ships warns on each embedded newline in a `-v` value; they are now space-separated, which ids cannot contain. Cosmetic, but `ctrl-d` puts a session in the trash every time it is used, so the noise would have become permanent
+
 ## [2.0.0] - 2026-08-04
 
 ### Added

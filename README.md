@@ -105,6 +105,16 @@ Choose `[new]` to type a branch name — the worktree and branch are created aut
 > `ctrl-o` was chosen to avoid conflicts with the default tmux prefix (`ctrl-b`) and common readline bindings.
 > If you have remapped your tmux prefix to `ctrl-o`, you will need to press it twice or use `wrk <project> <branch>` instead.
 
+### Terminating sessions via hotkey
+
+`ctrl-x` in the project picker switches to a picker of every live session; `ctrl-d` there terminates the highlighted one after a confirmation prompt.
+The same key works in the per-project session picker you get when a project has more than one session.
+The picker stays open afterwards, so several sessions can be cleared in a row.
+
+Terminating only ends the session.
+The worktree and its branch are left on disk for `wrk --clean` to deal with.
+Under `aoe` the session record moves to aoe's trash and can be brought back with `aoe session restore <id>`; without `aoe`, the tmux session is killed outright and there is nothing to restore.
+
 ### Worktree Secrets Management
 
 If the parent project has a `.env` file, it is copied into the new worktree (with any existing `WRK_PORT` entry stripped) so that project-level config carries over automatically.

@@ -30,6 +30,13 @@ Hotkeys (in the project picker):
                          in the same directory (no worktree)
   ctrl-x                 Switch to a picker of all live sessions
 
+Hotkeys (in the session pickers):
+  ctrl-d                 Terminate the highlighted session, after a prompt.
+                         Under aoe the record goes to aoe's trash and is
+                         restorable with `aoe session restore`; the worktree
+                         and branch are left for --clean. Without aoe the
+                         tmux session is killed outright.
+
 Session indicators (project picker, branch picker, session pickers, --list):
   ✖                      Agent hit an error
   ●                      Agent is waiting on you
@@ -100,10 +107,10 @@ session_label() { local s="${1//[!a-zA-Z0-9]/_}"; printf '%s' "$s"; }
 # lifecycle to Agent of Empires, keeping only the parts aoe has no notion of —
 # org/repo discovery, vaults, WRK_PORT, the SSH agent symlink.
 #
-# Both implement the same six functions — _prime, _rows, _project_key, _attach,
-# _open, _purge_worktree — reached through the BACKEND indirection below, and
-# both emit the same row format, so every picker, indicator and cleanup path is
-# written once:
+# Both implement the same seven functions — _prime, _rows, _project_key,
+# _attach, _open, _kill, _purge_worktree — reached through the BACKEND
+# indirection below, and both emit the same row format, so every picker,
+# indicator and cleanup path is written once:
 #
 #   key ␟ pkey ␟ branch ␟ label ␟ glyph ␟ path ␟ isdef
 #
@@ -252,6 +259,9 @@ tmux_open() {
   tmux_attach "$session"
 }
 
+# `=` prefix for the same exact-name reason as tmux_attach.
+tmux_kill() { tmux kill-session -t "=$1" 2>/dev/null || true; }
+
 tmux_purge_worktree() {
   local org_project="$2" label="$3"
   tmux kill-session \
@@ -280,13 +290,19 @@ aoe_prime() {
   local trashed
   # No --json on list-trash. Rows are two-space indented, the header is not, so
   # anchoring on the indent keeps the header from ever parsing as an id.
-  trashed=$(aoe session list-trash 2>/dev/null | awk '/^  /{print $1}' || true)
+  #
+  # Space-separated, not one id per line: the list is handed to the awk below
+  # through -v, and BWK awk — the awk macOS ships — warns "newline in string" on
+  # every embedded newline in a -v value. Ids are hex, so a space cannot occur
+  # inside one, and splitting on a literal " " gets awk's whitespace handling,
+  # which drops the trailing separator instead of yielding an empty field.
+  trashed=$(aoe session list-trash 2>/dev/null | awk '/^  /{printf "%s ", $1}' || true)
   _AOE_ROWS=$(aoe list --json 2>/dev/null \
     | jq -r '.[] | [.id, .path, .title, .tool,
                     (.worktree.branch // ""), (.worktree.main_repo_path // "")]
              | join("\u001f")' 2>/dev/null \
     | awk -F"$SEP" -v trash="$trashed" '
-        BEGIN { n = split(trash, t, "\n"); for (i = 1; i <= n; i++) if (t[i] != "") skip[t[i]] = 1 }
+        BEGIN { n = split(trash, t, " "); for (i = 1; i <= n; i++) skip[t[i]] = 1 }
         !($1 in skip)' || true)
   _AOE_LOADED=true
 }
@@ -457,6 +473,12 @@ aoe_find() {
   printf '%s\n' "$_AOE_ROWS" | awk -F"$SEP" -v p="$1" -v t="$2" '$2==p && $3==t{print $1; exit}'
 }
 
+# The plain trash, not the --purge below: the worktree and branch outlive the
+# session record here, so there is somewhere to restore it to. wrk's worktrees
+# are managed_by_aoe:false, so no --delete-worktree either — a killed session
+# leaves its worktree for --clean to deal with later.
+aoe_kill() { aoe remove "$1" &>/dev/null || true; }
+
 # Every session rooted in this worktree, not just the first: a ctrl-t session
 # can sit alongside the branch session in the same directory, and the directory
 # is about to go. --purge rather than the default trash: the worktree and branch
@@ -481,6 +503,7 @@ has_aoe && BACKEND=aoe
 
 backend_attach()  { "${BACKEND}_attach" "$@"; }
 backend_open()    { "${BACKEND}_open" "$@"; }
+backend_kill()    { "${BACKEND}_kill" "$@"; }
 backend_purge_worktree() { "${BACKEND}_purge_worktree" "$@"; }
 
 # Answers in $PKEY, not on stdout — see rows_project_ind.
@@ -498,6 +521,21 @@ backend_prime() {
   _ROWS=$("${BACKEND}_rows")
 }
 backend_rows() { printf '%s' "$_ROWS"; }
+
+# Terminate a session from a picker: confirm, kill, re-prime so the caller's next
+# read of backend_rows no longer sees it. Non-zero on a declined confirmation, so
+# a caller can tell "nothing happened" from "the list changed".
+kill_session() {
+  local key="$1" label="$2" reply
+  printf "Terminate '%s'? [y/N] " "$label" >&2
+  read -r reply
+  case "$reply" in
+    y|Y) ;;
+    *) return 1 ;;
+  esac
+  backend_kill "$key"
+  backend_prime
+}
 
 # Point a stable symlink at the current shell's SSH agent socket. Sessions are
 # given SSH_AUTH_SOCK_LINK (not the raw socket path) as their SSH_AUTH_SOCK, so
@@ -814,20 +852,33 @@ _fzf_line=$(printf '%s' "$_fzf_result" | tail -1)
 # Every session the backend knows about, not just this project's. Under aoe that
 # deliberately includes sessions aoe created outside wrk — the one place wrk is
 # aoe-native rather than wrk-scoped.
+#
+# Looped so a terminate re-enters the picker against freshly primed rows rather
+# than dropping back to the project picker: ending sessions comes in batches.
 if [ "$_fzf_key" = 'ctrl-x' ]; then
-  _rows=$(backend_rows)
-  if [ -z "$_rows" ]; then
-    tmux display-message "No active sessions"
-    exec "$0" "$@"
-  fi
-  _sess=$(printf '%s\n' "$_rows" \
-    | awk -F"$SEP" 'NF{printf "%s\t%s %s\t%s\n", $1, $5, $4, $6}' \
-    | fzf --delimiter=$'\t' --with-nth=2 \
-          --preview 'tree -C -L 1 {3}' \
-          --prompt='Session: ' \
-          --header="enter: attach  $GLYPH_LEGEND") || true
-  [ -z "$_sess" ] && exit 0
-  backend_attach "$(printf '%s' "$_sess" | cut -f1)"
+  while true; do
+    _rows=$(backend_rows)
+    if [ -z "$_rows" ]; then
+      tmux display-message "No active sessions"
+      exec "$0" "$@"
+    fi
+    _sess=$(printf '%s\n' "$_rows" \
+      | awk -F"$SEP" 'NF{printf "%s\t%s %s\t%s\n", $1, $5, $4, $6}' \
+      | fzf --delimiter=$'\t' --with-nth=2 \
+            --preview 'tree -C -L 1 {3}' \
+            --prompt='Session: ' \
+            --expect=ctrl-d \
+            --header="enter: attach  <C-d>: terminate  $GLYPH_LEGEND") || true
+    [ -z "$_sess" ] && exit 0
+    _sess_key=$(printf '%s' "$_sess" | head -1)
+    _sess_line=$(printf '%s' "$_sess" | tail -1)
+    if [ "$_sess_key" = 'ctrl-d' ]; then
+      kill_session "$(printf '%s' "$_sess_line" | cut -f1)" \
+                   "$(printf '%s' "$_sess_line" | cut -f2)" || true
+      continue
+    fi
+    backend_attach "$(printf '%s' "$_sess_line" | cut -f1)"
+  done
 fi
 
 TYPE=$(printf '%s' "$_fzf_line" | cut -f1)
@@ -863,24 +914,44 @@ else
   # Sub-picker over this project's existing sessions. Picking one attaches and
   # exits; the sentinels fall through to creation below. A lone default session
   # opens straight through rather than through a one-item picker.
-  _lines=() _only_default=true
-  while IFS="$SEP" read -r _key _pkey _ _label _glyph _ _isdef; do
-    [ "$_pkey" = "$PKEY" ] || continue
-    [ "$_isdef" = '1' ] || _only_default=false
-    [ "$_isdef" = '1' ] && _label='[default]'
-    _lines+=("$_key"$'\t'"$_glyph $_label")
-  done <<< "$(backend_rows)"
+  #
+  # Looped for the same reason as the ctrl-x picker. Terminating down to nothing
+  # but the default session stops the condition below from holding, and the loop
+  # falls out to creation rather than re-entering a picker that no longer earns
+  # its place.
+  while true; do
+    _lines=() _only_default=true
+    while IFS="$SEP" read -r _key _pkey _ _label _glyph _ _isdef; do
+      [ "$_pkey" = "$PKEY" ] || continue
+      [ "$_isdef" = '1' ] || _only_default=false
+      [ "$_isdef" = '1' ] && _label='[default]'
+      _lines+=("$_key"$'\t'"$_glyph $_label")
+    done <<< "$(backend_rows)"
 
-  if [ "${#_lines[@]}" -gt 1 ] || \
-     { [ "${#_lines[@]}" -eq 1 ] && ! $_only_default; }; then
+    [ "${#_lines[@]}" -gt 1 ] || \
+      { [ "${#_lines[@]}" -eq 1 ] && ! $_only_default; } || break
+
     _lines+=('[new session]'$'\t''  [new session]')
     [ "$TYPE" != 'vault' ] && _lines+=('[new worktree]'$'\t''  [new worktree]')
 
     _pick=$(printf '%s\n' "${_lines[@]}" \
       | fzf --delimiter=$'\t' --with-nth=2 --preview '' \
-            --prompt='Session? ' --header="$GLYPH_LEGEND") || true
+            --prompt='Session? ' --expect=ctrl-d \
+            --header="<C-d>: terminate  $GLYPH_LEGEND") || true
     [ -z "$_pick" ] && exit 0
-    _pick=$(printf '%s' "$_pick" | cut -f1)
+    _pick_key=$(printf '%s' "$_pick" | head -1)
+    _pick_line=$(printf '%s' "$_pick" | tail -1)
+    _pick=$(printf '%s' "$_pick_line" | cut -f1)
+
+    # The sentinels are creation entry points, not sessions — nothing to kill.
+    if [ "$_pick_key" = 'ctrl-d' ]; then
+      case "$_pick" in
+        '[new session]'|'[new worktree]') ;;
+        *) kill_session "$_pick" "$(printf '%s' "$_pick_line" | cut -f2)" || true ;;
+      esac
+      continue
+    fi
+
     case "$_pick" in
       '[new session]')
         printf 'Session name: '
@@ -896,7 +967,8 @@ else
         ;;
       *) backend_attach "$_pick" ;;
     esac
-  fi
+    break
+  done
 fi
 
 if [ "$TYPE" != 'vault' ] && command -v mise &>/dev/null \
