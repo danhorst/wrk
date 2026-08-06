@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-06
+
 ### Added
 - `ctrl-d` in either session picker terminates the highlighted session after a confirmation prompt. Both pickers now loop rather than exiting, so the list re-primes after each kill and several sessions can be cleared in one pass. Under `aoe` this is a plain `aoe remove`: the record goes to the trash and `aoe session restore` brings it back, while the worktree and branch are left for `--clean`. Without `aoe`, the tmux session is killed outright. Until now the only teardown path was `--clean`, which could not reach a session whose worktree you wanted to keep
 
@@ -172,7 +174,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/danhorst/wrk/compare/2.0.0...2.1.0
 [2.0.0]: https://github.com/danhorst/wrk/compare/1.7.1...2.0.0
 [1.7.1]: https://github.com/danhorst/wrk/compare/1.7.0...1.7.1
 [1.7.0]: https://github.com/danhorst/wrk/compare/1.6.3...1.7.0
