@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-07
+
+### Added
+- `wrk --kill [query]` opens a picker over every live session where enter terminates the highlighted one, with the same confirmation prompt the hotkey uses. A query argument pre-fills the search. Terminating was reachable only as a hotkey inside a picker you had to already be in, so ending a session meant opening the project picker first
+- `wrk --version` marks a build run from a checkout rather than an installed one: `2.1.1+dev.<sha>`, with `.dirty` appended when `wrk` itself has uncommitted edits. An installed build still prints a bare version. `scripts/pre-release` reports the same string in its `status` and `on` output, so which build is live is answerable without inspecting symlinks. The marker is derived from git at `--version` time — nothing is written into the file, and `VERSION` stays the bare literal that `scripts/release` rewrites
+- `ctrl-d` in the project picker terminates the highlighted project's session. With one session it kills it directly; with several it drops into a picker scoped to that project, rather than guessing which one you meant. The project picker was the one picker where terminate was neither bound nor advertised
+
 ## [2.1.1] - 2026-08-07
 
 ### Fixed
@@ -183,7 +190,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v2.1.1...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/danhorst/wrk/compare/2.1.1...2.2.0
 [2.1.1]: https://github.com/danhorst/wrk/compare/2.1.0...2.1.1
 [2.1.0]: https://github.com/danhorst/wrk/compare/2.0.0...2.1.0
 [2.0.0]: https://github.com/danhorst/wrk/compare/1.7.1...2.0.0

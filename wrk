@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.1.1"
+VERSION="2.2.0"
 
 # aoe canonicalizes every path it stores, so a directory reached through a
 # symlink comes back spelled differently and every match against it fails.
@@ -20,6 +20,35 @@ VAULT_MARKER="${WRK_VAULT_MARKER:-.wrk-vault}"
 AOE_SHELL_TOOL="${WRK_AOE_SHELL_TOOL:-shell}"
 SSH_AUTH_SOCK_LINK="$(dirname "$WORKTREE_ROOT")/ssh-auth-sock"
 
+# $VERSION, plus a marker when this is the working tree rather than an installed
+# build. scripts/pre-release symlinks ~/.local/bin/wrk straight at the repo copy,
+# so the giveaway is that the script — followed through its symlinks — sits at
+# the root of a git checkout that tracks it by that name. The toplevel check is
+# what keeps a stray copy inside some other repo from claiming to be a dev build.
+#
+# Only --version calls this. VERSION stays a bare literal on its own line either
+# way, because scripts/release rewrites it by regex.
+version_string() {
+  local src="$0" dir name sha dirty=''
+  while [ -L "$src" ]; do
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+  done
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  name="${src##*/}"
+  # Tracked, not merely present: a copy dropped into some other repo is
+  # untracked there and stays an installed build. One call settles both halves —
+  # that this is a checkout at all, and that it is one that owns this file.
+  git -C "$dir" ls-files --error-unmatch -- "$name" >/dev/null 2>&1 \
+    || { printf '%s' "$VERSION"; return; }
+  sha="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)" || sha='unknown'
+  # Scoped to the file itself: a modified CHANGELOG says nothing about the code
+  # actually running.
+  [ -n "$(git -C "$dir" status --porcelain -- "$name" 2>/dev/null)" ] && dirty='.dirty'
+  printf '%s+dev.%s%s' "$VERSION" "$sha" "$dirty"
+}
+
 show_help() {
   cat <<'EOF'
 wrk — tmux session manager for git projects
@@ -29,7 +58,8 @@ Usage:
   wrk <project> <label>  Open or create a labeled sub-project session
   wrk --list             List all worktrees and their status
   wrk --clean            Review and remove worktrees for merged branches
-  wrk --version          Show version
+  wrk --kill [query]     Pick a session to terminate (query pre-fills the search)
+  wrk --version          Show version (+dev.<sha> when run from a checkout)
   wrk --help             Show this help
 
 Hotkeys (in the project picker):
@@ -38,6 +68,8 @@ Hotkeys (in the project picker):
   ctrl-t                 Open a named session for the highlighted project
                          in the same directory (no worktree)
   ctrl-x                 Switch to a picker of all live sessions
+  ctrl-d                 Terminate the highlighted project's session, after a
+                         prompt; drops into a picker when it has more than one
 
 Hotkeys (in the session pickers):
   ctrl-d                 Terminate the highlighted session, after a prompt.
@@ -177,6 +209,26 @@ rows_project_ind() {
     [ "$GLYPH_RANK" -gt "$best_rank" ] && { best="$g"; best_rank="$GLYPH_RANK"; }
   done <<< "$_ROWS"
   IND="$best"
+}
+
+# How many sessions a project has, for deciding what ctrl-d on a project row
+# should do: nothing, kill the one, or open a picker over the several. Answers
+# in globals for the same no-fork reason as rows_project_ind, and carries the
+# lone session's key and label so the one-session case needs no second pass.
+PROJ_COUNT=0
+PROJ_KEY=''
+PROJ_LABEL=''
+rows_project_sessions() {
+  local pkey="$1" k p l
+  PROJ_COUNT=0 PROJ_KEY='' PROJ_LABEL=''
+  while IFS="$SEP" read -r k p _ l _ _ _; do
+    [ -z "$k" ] && continue
+    [ "$p" = "$pkey" ] || continue
+    PROJ_COUNT=$((PROJ_COUNT + 1))
+    # `if`, not `&&`: this is the loop's last command, so a false test would
+    # make the loop — and the function — return non-zero and trip set -e.
+    if [ "$PROJ_COUNT" -eq 1 ]; then PROJ_KEY="$k"; PROJ_LABEL="$l"; fi
+  done <<< "$_ROWS"
 }
 
 # Glyph for one worktree of one project, given its <org>/<repo> and branch. The
@@ -599,6 +651,63 @@ kill_session() {
   backend_prime
 }
 
+# A picker over session rows, shared by ctrl-x, --kill, and ctrl-d on a project
+# row. Looped so a terminate re-primes and re-enters rather than dropping the
+# caller out: ending sessions comes in batches.
+#
+#   mode   attach — enter attaches, <C-d> terminates
+#          kill   — enter terminates; <C-d> does the same, kept bound so the
+#                   two-line --expect parsing stays the same in both modes
+#   pkey   filter to one project; empty means every session the backend knows
+#          about, which under aoe includes sessions aoe created outside wrk
+#   query  pre-fills fzf's search
+#
+# Returns 2 when there is nothing to show. What that means is the caller's
+# business — ctrl-x re-execs into the project picker, --kill reports and exits —
+# and `exec "$0" "$@"` cannot live in here anyway, since $@ in a function is the
+# function's own arguments.
+session_picker() {
+  local mode="$1" pkey="${2:-}" query="${3:-}"
+  local rows sess key line prompt header
+  if [ "$mode" = 'kill' ]; then
+    prompt='Terminate: '; header="enter: terminate  $GLYPH_LEGEND"
+  else
+    prompt='Session: ';   header="enter: attach  <C-d>: terminate  $GLYPH_LEGEND"
+  fi
+  while true; do
+    rows=$(backend_rows)
+    [ -n "$pkey" ] && rows=$(printf '%s\n' "$rows" | awk -F"$SEP" -v p="$pkey" '$2==p')
+    [ -z "$rows" ] && return 2
+    sess=$(printf '%s\n' "$rows" \
+      | awk -F"$SEP" 'NF{printf "%s\t%s %s\t%s\n", $1, $5, $4, $6}' \
+      | fzf --delimiter=$'\t' --with-nth=2 \
+            --preview 'tree -C -L 1 {3}' \
+            --prompt="$prompt" --query "$query" \
+            --expect=ctrl-d \
+            --header="$header") || true
+    [ -z "$sess" ] && return 1
+    key=$(printf '%s' "$sess" | head -1)
+    line=$(printf '%s' "$sess" | tail -1)
+    if [ "$mode" = 'kill' ] || [ "$key" = 'ctrl-d' ]; then
+      kill_session "$(printf '%s' "$line" | cut -f1)" \
+                   "$(printf '%s' "$line" | cut -f2)" || true
+      continue
+    fi
+    backend_attach "$(printf '%s' "$line" | cut -f1)"
+  done
+}
+
+# Terminate from the command line. Primes for itself, like cmd_list: the
+# dispatch runs before project discovery. Reports on stderr rather than through
+# tmux display-message, since --kill can be run from outside tmux.
+cmd_kill() {
+  local rc=0
+  backend_prime
+  session_picker kill '' "${1:-}" || rc=$?
+  [ "$rc" -eq 2 ] && echo 'wrk: no active sessions' >&2
+  return 0
+}
+
 # Point a stable symlink at the current shell's SSH agent socket. Sessions are
 # given SSH_AUTH_SOCK_LINK (not the raw socket path) as their SSH_AUTH_SOCK, so
 # reattaching from a different SSH connection — which has its own forwarded
@@ -845,9 +954,10 @@ cmd_clean() {
 # Handle subcommands before project discovery
 case "${1:-}" in
   --help)    show_help; exit 0 ;;
-  --version) echo "wrk $VERSION"; exit 0 ;;
+  --version) echo "wrk $(version_string)"; exit 0 ;;
   --list)    cmd_list;  exit 0 ;;
   --clean)   cmd_clean; exit 0 ;;
+  --kill)    cmd_kill "${2:-}"; exit 0 ;;
 esac
 
 sync_ssh_agent
@@ -905,8 +1015,8 @@ _fzf_result=$(printf '%s\n' "${_project_lines[@]}" \
   | fzf --delimiter=$'\t' --with-nth=4 \
         --preview 'tree -C -L 1 {2}' \
         --prompt='What do you want to work on? ' --query "${1:-}" \
-        --expect=ctrl-o,ctrl-t,ctrl-x \
-        --header="<C-o>: + worktree  <C-t>: + session  <C-x>: filter active  📓 vault
+        --expect=ctrl-o,ctrl-t,ctrl-x,ctrl-d \
+        --header="<C-o>: + worktree  <C-t>: + session  <C-x>: filter active  <C-d>: terminate  📓 vault
 $GLYPH_LEGEND")
 
 [ -z "$_fzf_result" ] && exit 0
@@ -917,33 +1027,17 @@ _fzf_line=$(printf '%s' "$_fzf_result" | tail -1)
 # Every session the backend knows about, not just this project's. Under aoe that
 # deliberately includes sessions aoe created outside wrk — the one place wrk is
 # aoe-native rather than wrk-scoped.
-#
-# Looped so a terminate re-enters the picker against freshly primed rows rather
-# than dropping back to the project picker: ending sessions comes in batches.
 if [ "$_fzf_key" = 'ctrl-x' ]; then
-  while true; do
-    _rows=$(backend_rows)
-    if [ -z "$_rows" ]; then
-      tmux display-message "No active sessions"
-      exec "$0" "$@"
-    fi
-    _sess=$(printf '%s\n' "$_rows" \
-      | awk -F"$SEP" 'NF{printf "%s\t%s %s\t%s\n", $1, $5, $4, $6}' \
-      | fzf --delimiter=$'\t' --with-nth=2 \
-            --preview 'tree -C -L 1 {3}' \
-            --prompt='Session: ' \
-            --expect=ctrl-d \
-            --header="enter: attach  <C-d>: terminate  $GLYPH_LEGEND") || true
-    [ -z "$_sess" ] && exit 0
-    _sess_key=$(printf '%s' "$_sess" | head -1)
-    _sess_line=$(printf '%s' "$_sess" | tail -1)
-    if [ "$_sess_key" = 'ctrl-d' ]; then
-      kill_session "$(printf '%s' "$_sess_line" | cut -f1)" \
-                   "$(printf '%s' "$_sess_line" | cut -f2)" || true
-      continue
-    fi
-    backend_attach "$(printf '%s' "$_sess_line" | cut -f1)"
-  done
+  _rc=0
+  session_picker attach || _rc=$?
+  # Terminating the last session leaves nothing to pick from; re-exec rather
+  # than exit, so the project picker is what you land back in.
+  if [ "$_rc" -eq 2 ]; then
+    # || true: no tmux server means no message, not an aborted re-exec.
+    tmux display-message "No active sessions" || true
+    exec "$0" "$@"
+  fi
+  exit 0
 fi
 
 TYPE=$(printf '%s' "$_fzf_line" | cut -f1)
@@ -953,6 +1047,21 @@ PROJECT_REL=$(printf '%s' "$_fzf_line" | cut -f3)
 [ -z "$PROJECT_PATH" ] && exit 0
 
 backend_project_key "$TYPE" "$PROJECT_PATH" "$PROJECT_REL"
+
+# ctrl-d on a project row terminates rather than opens, so it is handled before
+# any of the creation paths below. One session is killed outright — a one-item
+# picker earns its place here no more than it does further down; several drop
+# into a picker scoped to this project. Every outcome re-execs, so terminating
+# leaves you back in the project picker instead of dropping out of wrk.
+if [ "$_fzf_key" = 'ctrl-d' ]; then
+  rows_project_sessions "$PKEY"
+  case "$PROJ_COUNT" in
+    0) tmux display-message "No sessions for ${PROJECT_REL:-${PROJECT_PATH##*/}}" || true ;;
+    1) kill_session "$PROJ_KEY" "$PROJ_LABEL" || true ;;
+    *) session_picker kill "$PKEY" || true ;;
+  esac
+  exec "$0" "$@"
+fi
 
 # What to open, in backend-neutral terms: the directory, an optional free-form
 # label, and a branch that is set only for worktree-backed sessions. The backend
