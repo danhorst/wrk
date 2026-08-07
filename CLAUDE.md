@@ -19,6 +19,10 @@ The symlink points at the file, so edits are live — and a `git checkout` here
 changes `wrk` system-wide until it's switched off. Turn it off before `brew
 upgrade wrk`, or the upgrade won't take effect.
 
+`wrk --version` says which build it is: an installed one prints a bare `2.1.1`,
+a checkout prints `2.1.1+dev.<sha>`, and `.dirty` is appended when `wrk` itself
+has uncommitted edits. `pre-release status` reports the same string.
+
 ## Release process
 
 Releases involve two repos: this one (`danhorst/wrk`) and the Homebrew tap

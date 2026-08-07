@@ -105,11 +105,15 @@ Choose `[new]` to type a branch name — the worktree and branch are created aut
 > `ctrl-o` was chosen to avoid conflicts with the default tmux prefix (`ctrl-b`) and common readline bindings.
 > If you have remapped your tmux prefix to `ctrl-o`, you will need to press it twice or use `wrk <project> <branch>` instead.
 
-### Terminating sessions via hotkey
+### Terminating sessions
 
-`ctrl-x` in the project picker switches to a picker of every live session; `ctrl-d` there terminates the highlighted one after a confirmation prompt.
-The same key works in the per-project session picker you get when a project has more than one session.
-The picker stays open afterwards, so several sessions can be cleared in a row.
+`wrk --kill` opens a picker over every live session where enter terminates the highlighted one, after a confirmation prompt.
+A query argument pre-fills the search, as it does for `wrk [query]`.
+
+`ctrl-d` terminates from inside the pickers too.
+On a project row it ends that project's session directly, or opens a picker scoped to the project when it has more than one.
+In the session pickers — the one `ctrl-x` opens over every live session, and the per-project one — it terminates the highlighted row.
+Every one of these stays open afterwards, so several sessions can be cleared in a row.
 
 Terminating only ends the session.
 The worktree and its branch are left on disk for `wrk --clean` to deal with.
