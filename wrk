@@ -22,9 +22,8 @@ SSH_AUTH_SOCK_LINK="$(dirname "$WORKTREE_ROOT")/ssh-auth-sock"
 
 # $VERSION, plus a marker when this is the working tree rather than an installed
 # build. scripts/pre-release symlinks ~/.local/bin/wrk straight at the repo copy,
-# so the giveaway is that the script — followed through its symlinks — sits at
-# the root of a git checkout that tracks it by that name. The toplevel check is
-# what keeps a stray copy inside some other repo from claiming to be a dev build.
+# so the giveaway is that the script — followed through its symlinks — lands in a
+# git checkout that tracks it.
 #
 # Only --version calls this. VERSION stays a bare literal on its own line either
 # way, because scripts/release rewrites it by regex.
