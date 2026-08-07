@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-08-07
+
+### Added
+- `wrk` warns on stderr when `aoe` is on `$PATH` but its `config.toml` has no `environment = ["SSH_AUTH_SOCK"]` passthrough entry. Without it a session silently never receives the forwarded SSH agent socket, and the first symptom is `git push` failing inside the session with nothing pointing back at the cause
+
 ## [2.2.0] - 2026-08-07
 
 ### Added
@@ -190,7 +195,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/danhorst/wrk/compare/2.2.0...2.3.0
 [2.2.0]: https://github.com/danhorst/wrk/compare/2.1.1...2.2.0
 [2.1.1]: https://github.com/danhorst/wrk/compare/2.1.0...2.1.1
 [2.1.0]: https://github.com/danhorst/wrk/compare/2.0.0...2.1.0

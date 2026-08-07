@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.2.0"
+VERSION="2.3.0"
 
 # aoe canonicalizes every path it stores, so a directory reached through a
 # symlink comes back spelled differently and every match against it fails.
@@ -606,6 +606,35 @@ aoe_purge_worktree() {
   done < <(printf '%s\n' "$_AOE_ALL_ROWS" | awk -F"$SEP" -v p="$wt" '$2==p{print $1}')
 }
 
+# aoe's own config precedence: XDG first, then its non-XDG fallback. Hoisted
+# out of aoe_config_path so the missing-passthrough warning below can also
+# name the XDG path as where to create the file when neither exists yet.
+_AOE_CONFIG_XDG="${XDG_CONFIG_HOME:-$HOME/.config}/agent-of-empires/config.toml"
+_AOE_CONFIG_LEGACY="$HOME/.agent-of-empires/config.toml"
+
+# Neither existing is not an error here — aoe_open already surfaces aoe's own
+# complaint the first time a shell session hits a missing custom_agents entry,
+# and an absent file implies that failure regardless of SSH_AUTH_SOCK.
+aoe_config_path() {
+  if [ -f "$_AOE_CONFIG_XDG" ]; then printf '%s' "$_AOE_CONFIG_XDG"
+  elif [ -f "$_AOE_CONFIG_LEGACY" ]; then printf '%s' "$_AOE_CONFIG_LEGACY"
+  fi
+}
+
+# Unlike a missing custom_agents entry, a missing `environment` passthrough
+# fails silently — the session just never receives SSH_AUTH_SOCK, and the
+# first symptom is `git push` failing inside it with no link back to the
+# cause. /^\[/ stops the scan at the first table header, so a same-named key
+# under some later [section] doesn't count as the top-level passthrough.
+# Single-line array only, matching every example in the README; a multi-line
+# `environment = [\n  "SSH_AUTH_SOCK",\n]` is not detected.
+aoe_ssh_forwarding_configured() {
+  local cfg
+  cfg=$(aoe_config_path)
+  [ -z "$cfg" ] && return 1
+  awk '/^\[/{exit} /^environment[[:space:]]*=/{if ($0 ~ /SSH_AUTH_SOCK/) f=1} END{exit !f}' "$cfg"
+}
+
 # --- Backend selection ---
 # The one place the choice is made. Everything below calls through BACKEND.
 if command -v aoe &>/dev/null && ! command -v jq &>/dev/null; then
@@ -613,6 +642,15 @@ if command -v aoe &>/dev/null && ! command -v jq &>/dev/null; then
 fi
 BACKEND=tmux
 has_aoe && BACKEND=aoe
+if [ "$BACKEND" = aoe ] && ! aoe_ssh_forwarding_configured; then
+  # An if/elif with no matching branch and no else exits 0 regardless, so
+  # aoe_config_path's own exit status can't signal "neither file exists" —
+  # ${_aoe_cfg:-...} checks its (empty) output instead, naming the XDG path
+  # as where to create one when there is nothing to point at yet.
+  _aoe_cfg=$(aoe_config_path)
+  echo "wrk: aoe SSH agent forwarding not configured — add this line to ${_aoe_cfg:-$_AOE_CONFIG_XDG}:" >&2
+  echo '  environment = ["SSH_AUTH_SOCK"]' >&2
+fi
 
 backend_attach()  { "${BACKEND}_attach" "$@"; }
 backend_open()    { "${BACKEND}_open" "$@"; }
