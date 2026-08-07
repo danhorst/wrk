@@ -217,6 +217,7 @@ Name it something else and point `WRK_AOE_SHELL_TOOL` at that name.
 
 The `environment` entry forwards the SSH agent symlink, so sessions keep working when you reattach over a different SSH connection.
 `wrk` exports `SSH_AUTH_SOCK` pointing at the symlink before handing off, so a bare passthrough is enough — no absolute path, which matters because `aoe` does not expand `~`.
+If this entry is missing, `wrk` warns on stderr rather than failing silently — the alternative is a session where `git push` mysteriously can't reach your SSH agent.
 
 > [!NOTE]
 > Leave `aoe`'s `tmux.socket_name` unset.
