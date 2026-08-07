@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.1.0"
+VERSION="2.1.1"
 
-PROJECT_ROOT="${WRK_PROJECT_ROOT:-$HOME/git}"
-WORKTREE_ROOT="${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}"
+# aoe canonicalizes every path it stores, so a directory reached through a
+# symlink comes back spelled differently and every match against it fails.
+# Resolved at the roots rather than per project: two forks at startup instead of
+# one per repo. The -d guard is for WORKTREE_ROOT, which does not exist until
+# resolve_worktree first creates it.
+canon_dir() {
+  if [ -d "$1" ]; then (cd -- "$1" && pwd -P); else printf '%s' "${1%/}"; fi
+}
+
+PROJECT_ROOT="$(canon_dir "${WRK_PROJECT_ROOT:-$HOME/git}")"
+WORKTREE_ROOT="$(canon_dir "${WRK_WORKTREE_ROOT:-$HOME/.wrk/worktrees}")"
 VAULT_MARKER="${WRK_VAULT_MARKER:-.wrk-vault}"
 # aoe validates --cmd against its agent allowlist, so a plain shell has to be
 # reached through a custom agent the user declares in aoe's config.toml.
@@ -302,9 +311,14 @@ aoe_prime() {
   # inside one, and splitting on a literal " " gets awk's whitespace handling,
   # which drops the trailing separator instead of yielding an empty field.
   trashed=$(aoe session list-trash 2>/dev/null | awk '/^  /{printf "%s ", $1}' || true)
+  # rtrimstr on both paths: aoe fills main_repo_path from libgit2's workdir(),
+  # which always ends in a slash, so a worktree session's project key never
+  # equalled the project's own and every picker dropped the row. `.path` gets the
+  # same treatment because aoe compares paths that way itself.
   _AOE_ALL_ROWS=$(aoe list --json 2>/dev/null \
-    | jq -r '.[] | [.id, .path, .title, .tool,
-                    (.worktree.branch // ""), (.worktree.main_repo_path // "")]
+    | jq -r '.[] | [.id, (.path | rtrimstr("/")), .title, .tool,
+                    (.worktree.branch // ""),
+                    (.worktree.main_repo_path // "" | rtrimstr("/"))]
              | join("\u001f")' 2>/dev/null || true)
   # NF guards the empty profile. This awk reads a variable rather than jq's
   # stdout, and printf gives a lone newline for an empty one; without NF that
@@ -373,13 +387,19 @@ aoe_rows() {
 # `_<id8>` tail is the only stable handle — the same one aoe matches on
 # internally (agent_session_belongs_to). Resolved from a single tmux
 # list-sessions cached for the process, since every row needs it.
+#
+# Stable but not unique: aoe hangs a paired terminal (aoe_term_), a container
+# terminal (aoe_cterm_), and tool panes (aoe_tool_) off the same id, all of them
+# `aoe_`-prefixed and all ending in the same tail. Only the prefix separates
+# them, which is how aoe itself picks the agent pane out. Excluded here rather
+# than in the lookup so one awk still does the whole filter.
 _AOE_TMUX=''
 _AOE_TMUX_LOADED=false
 aoe_tmux_info() {
   if ! $_AOE_TMUX_LOADED; then
     _AOE_TMUX=$(tmux list-sessions \
       -F '#{session_name}'$'\t''#{session_attached}' 2>/dev/null \
-      | grep '^aoe_' || true)
+      | awk '/^aoe_/ && !/^aoe_(term|cterm|tool)_/' || true)
     _AOE_TMUX_LOADED=true
   fi
   printf '%s' "$_AOE_TMUX"
@@ -446,7 +466,7 @@ aoe_project_key() { PKEY="$2"; }
 
 aoe_open() {
   local type="$1" path="$2" rel="$3" dir="$4" label="$5" branch="$6"
-  local repo group title id
+  local repo group title id out
   repo="$(basename "$path")"
   if [ "$type" = 'vault' ]; then group='vaults'; else group="${rel%/*}"; fi
   title="$repo"
@@ -460,29 +480,52 @@ aoe_open() {
 
   id=$(aoe_find "$dir" "$title")
   if [ -z "$id" ]; then
-    # No -l: create only, so wrk keeps control long enough to set the tmux
-    # option aoe leaves alone. aoe_attach does the launching.
-    if [ -n "$branch" ]; then
-      # No -b: resolve_worktree already created the worktree, so aoe adopts it
-      # as managed_by_aoe:false and will never relocate or delete it.
-      aoe add "$path" -w "$branch" -t "$title" -g "$group" \
-        --tool claude --trust-hooks >/dev/null
+    # aoe's duplicate check spans the trash, so while a trashed twin holds this
+    # title and path `aoe add` is a no-op that exits 0 with its explanation on
+    # stdout — leaving nothing to attach to, forever. Restore the twin instead:
+    # it is the same session, and the trash is where it can still be had from.
+    id=$(aoe_find_trashed "$dir" "$title")
+    if [ -n "$id" ]; then
+      aoe session restore "$id" >/dev/null
+      # Not hygiene: aoe_tune reads the tool out of _AOE_ROWS, which still has
+      # this id filtered out as trash.
+      aoe_prime
     else
-      aoe add "$dir" -t "$title" -g "$group" --tool "$AOE_SHELL_TOOL" \
-        --trust-hooks >/dev/null
+      # No -l: create only, so wrk keeps control long enough to set the tmux
+      # option aoe leaves alone. aoe_attach does the launching.
+      if [ -n "$branch" ]; then
+        # No -b: resolve_worktree already created the worktree, so aoe adopts it
+        # as managed_by_aoe:false and will never relocate or delete it.
+        out=$(aoe add "$path" -w "$branch" -t "$title" -g "$group" \
+          --tool claude --trust-hooks)
+      else
+        out=$(aoe add "$dir" -t "$title" -g "$group" --tool "$AOE_SHELL_TOOL" \
+          --trust-hooks)
+      fi
+      aoe_prime
+      id=$(aoe_find "$dir" "$title")
+      # aoe declines on stdout, not stderr, so echo what it said rather than
+      # leaving the reason in the /dev/null this used to end in.
+      [ -z "$id" ] && {
+        echo "wrk: aoe created no session for '$title'" >&2
+        [ -n "$out" ] && printf '%s\n' "$out" >&2
+        exit 1
+      }
     fi
-    aoe_prime
-    id=$(aoe_find "$dir" "$title")
-    [ -z "$id" ] && { echo "wrk: aoe created no session for '$title'" >&2; exit 1; }
   fi
   aoe_attach "$id"
 }
 
 # Path alone is ambiguous whenever two sessions share a directory — a ctrl-t
 # dev-server session next to the project's default one — so the title narrows it.
-aoe_find() {
-  printf '%s\n' "$_AOE_ROWS" | awk -F"$SEP" -v p="$1" -v t="$2" '$2==p && $3==t{print $1; exit}'
+aoe_match() {
+  printf '%s\n' "$1" | awk -F"$SEP" -v p="$2" -v t="$3" '$2==p && $3==t{print $1; exit}'
 }
+aoe_find() { aoe_match "$_AOE_ROWS" "$1" "$2"; }
+
+# No trash test of its own: only ever called once aoe_find came back empty, so a
+# hit in the unfiltered cache is a trashed one by construction.
+aoe_find_trashed() { aoe_match "$_AOE_ALL_ROWS" "$1" "$2"; }
 
 # The plain trash, not the --purge below: the worktree and branch outlive the
 # session record here, so there is somewhere to restore it to. wrk's worktrees
@@ -825,10 +868,13 @@ if [ -n "${WRK_VAULT_ROOTS:-}" ]; then
   for _root in "${_roots[@]}"; do
     [ -d "$_root" ] || continue
     if [ -e "$_root/$VAULT_MARKER" ]; then
-      VAULTS+=( "${_root%/}" )
+      VAULTS+=( "$(canon_dir "$_root")" )
     else
+      # Canonicalized per vault rather than per root, unlike PROJECT_ROOT: a
+      # handful of vaults can afford the fork where 65 repos cannot, and it
+      # covers a vault that is itself a symlink.
       for _d in "$_root"/*/; do
-        [ -e "${_d%/}/$VAULT_MARKER" ] && VAULTS+=( "${_d%/}" )
+        [ -e "${_d%/}/$VAULT_MARKER" ] && VAULTS+=( "$(canon_dir "${_d%/}")" )
       done
     fi
   done

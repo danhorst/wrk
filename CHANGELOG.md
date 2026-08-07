@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-08-07
+
+### Fixed
+- Opening a project whose aoe session sits in the trash no longer fails with `wrk: aoe created no session for '<title>'`. aoe's duplicate check compares title and path across trashed records too, so while the twin was there `aoe add` was a no-op that exited 0 — wrk saw no session, and the state was unrecoverable short of emptying the trash by hand. wrk now restores the trashed record and attaches to it. `ctrl-d` followed by reopening the project therefore returns the same session with its transcript rather than a fresh one; `--clean` and `aoe remove --purge` remain the ways to be rid of it
+- The error above, when it can still happen, carries aoe's own explanation. `aoe add` declines on stdout, which the call site sent to `/dev/null`, so the only thing left was wrk's generic line
+- Worktree sessions appear in their project's session picker again, and contribute their status glyph to the project row. aoe records a worktree session's main repo from libgit2's `workdir()`, which always ends in a slash, so the key wrk grouped on never equalled the project's own path and every picker dropped the row. Both paths read out of `aoe list --json` now have a trailing slash trimmed, which is how aoe compares them itself
+- wrk no longer applies its tmux options to the wrong pane. It resolved an aoe session's tmux name by the `_<id8>` tail alone, but aoe hangs paired terminals (`aoe_term_`), container terminals (`aoe_cterm_`), and tool panes (`aoe_tool_`) off that same id under the same `aoe_` prefix — and `tmux list-sessions` sorts by name, so an auxiliary session could win. `allow-passthrough` and `remain-on-exit` then landed on a terminal instead of the agent, and the attached indicator read from it too. Those three prefixes are now excluded, as aoe excludes them internally
+- Project, vault, and worktree roots are resolved to their physical paths at startup. aoe canonicalizes every path it stores, so a `WRK_PROJECT_ROOT`, `WRK_WORKTREE_ROOT`, or vault root reached through a symlink came back spelled differently and matched nothing: sessions were missing from the pickers, `--clean` left records behind, and opening a project failed outright. A symlinked `<org>` or `<repo>` directory inside a real root is still not resolved
+
 ## [2.1.0] - 2026-08-06
 
 ### Added
@@ -174,7 +183,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: fuzzy project picker backed by fzf, one tmux session per git repo
 
-[Unreleased]: https://github.com/danhorst/wrk/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/danhorst/wrk/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/danhorst/wrk/compare/2.1.0...2.1.1
 [2.1.0]: https://github.com/danhorst/wrk/compare/2.0.0...2.1.0
 [2.0.0]: https://github.com/danhorst/wrk/compare/1.7.1...2.0.0
 [1.7.1]: https://github.com/danhorst/wrk/compare/1.7.0...1.7.1
